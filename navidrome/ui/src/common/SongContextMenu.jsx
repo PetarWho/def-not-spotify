@@ -168,6 +168,55 @@ export const SongContextMenu = ({
         dispatch(openExtendedInfoDialog(fullRecord))
       },
     },
+    edit: {
+      enabled: !record.missing,
+      label: translate('ra.action.edit'),
+      action: (record) => {
+        // Navigate to edit page for song
+        window.location.href = `/#/song/${record.mediaFileId || record.id}`
+      },
+    },
+    delete: {
+      enabled: permissions === 'admin' && !record.missing,
+      label: translate('resources.song.actions.delete'),
+      action: async (record) => {
+        if (window.confirm(translate('resources.song.actions.deleteConfirm', { title: record.title }))) {
+          try {
+            // Use proper Subsonic API parameters
+            const username = localStorage.getItem('username') || 'admin'
+            const token = localStorage.getItem('subsonic-token') || ''
+            const salt = localStorage.getItem('subsonic-salt') || ''
+            const clientUniqueId = localStorage.getItem('clientUniqueId') || ''
+            
+            const response = await fetch(`/rest/deleteSong?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-ND-Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'X-ND-Client-Unique-Id': clientUniqueId,
+              },
+              body: JSON.stringify({
+                songId: record.mediaFileId || record.id,
+              }),
+            })
+
+            const data = await response.json()
+            const subsonicResponse = data['subsonic-response'] || data
+            
+            if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
+              notify('Song deleted successfully', 'success')
+              // Trigger a refresh of the current view
+              window.location.reload()
+            } else {
+              const errorMsg = subsonicResponse.deleteResponse?.message || subsonicResponse.error?.message || 'Delete failed'
+              notify(errorMsg, 'error')
+            }
+          } catch (err) {
+            notify('Network error: ' + err.message, 'error')
+          }
+        }
+      },
+    },
   }
 
   const handleClick = (e) => {

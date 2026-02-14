@@ -47,7 +47,9 @@
         "shuffleAll": "Shuffle All",
         "download": "Download",
         "playNext": "Play Next",
-        "info": "Get Info"
+        "info": "Get Info",
+        "delete": "Delete Song",
+        "deleteConfirm": "Are you sure you want to delete '%{title}'? This action cannot be undone."
       }
     },
     "album": {
@@ -89,7 +91,9 @@
         "shuffle": "Shuffle",
         "addToPlaylist": "Add to Playlist",
         "download": "Download",
-        "info": "Get Info"
+        "info": "Get Info",
+        "delete": "Delete Album",
+        "deleteConfirm": "Are you sure you want to delete '%{name}'? This will permanently remove all %{count} songs in this album and cannot be undone."
       },
       "lists": {
         "all": "All",

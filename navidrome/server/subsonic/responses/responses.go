@@ -49,6 +49,8 @@ type Subsonic struct {
 	PlayQueue  *PlayQueue  `xml:"playQueue,omitempty"                                     json:"playQueue,omitempty"`
 	Shares     *Shares     `xml:"shares,omitempty"                                     json:"shares,omitempty"`
 	DownloadResponse *DownloadResponse `xml:"downloadResponse,omitempty" json:"downloadResponse,omitempty"`
+	DeleteResponse   *DeleteResponse   `xml:"deleteResponse,omitempty"   json:"deleteResponse,omitempty"`
+	LibraryResponse *LibraryResponse `xml:"libraryResponse,omitempty" json:"libraryResponse,omitempty"`
 	Bookmarks  *Bookmarks  `xml:"bookmarks,omitempty"                                     json:"bookmarks,omitempty"`
 	ScanStatus *ScanStatus `xml:"scanStatus,omitempty"                                    json:"scanStatus,omitempty"`
 	Lyrics     *Lyrics     `xml:"lyrics,omitempty"                                        json:"lyrics,omitempty"`

@@ -31,12 +31,29 @@ const DownloadDialog = ({ open, onClose }) => {
   useEffect(() => {
     const fetchLibraries = async () => {
       try {
-        // Get library name from backend logs - it shows "Roy's Library"
-        // Since library API doesn't work, let's use the actual library name
-        setLibraries([{ id: 'default', name: "Roy's Library" }])
+        const username = localStorage.getItem('username') || 'admin'
+        const token = localStorage.getItem('subsonic-token') || ''
+        const salt = localStorage.getItem('subsonic-salt') || ''
+        
+        const response = await fetch(`/rest/getLibraries?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+
+        const data = await response.json()
+        const subsonicResponse = data['subsonic-response'] || data
+        
+        if (subsonicResponse.status === 'ok' && subsonicResponse.libraryResponse?.success) {
+          setLibraries(subsonicResponse.libraryResponse.libraries || [])
+        } else {
+          console.error('Failed to fetch libraries:', subsonicResponse)
+          setLibraries([{ id: 'default', name: 'Music Library' }])
+        }
       } catch (err) {
         console.error('Failed to fetch libraries:', err)
-        setLibraries([{ id: 'default', name: "Roy's Library" }])
+        setLibraries([{ id: 'default', name: 'Music Library' }])
       }
     }
     
@@ -73,8 +90,6 @@ const DownloadDialog = ({ open, onClose }) => {
       })
 
       const data = await response.json()
-
-      console.log('Download response:', data)
 
       // Handle Subsonic response format
       const subsonicResponse = data['subsonic-response'] || data

@@ -24,6 +24,7 @@ import {
 import { LoveButton } from './LoveButton'
 import config from '../config'
 import { formatBytes } from '../utils'
+import { usePermissions } from 'react-admin'
 
 const useStyles = makeStyles({
   noWrap: {
@@ -33,6 +34,42 @@ const useStyles = makeStyles({
     color: (props) => props.color,
   },
 })
+
+const deleteAlbum = async (albumId, songCount, notify) => {
+  try {
+    // Use proper Subsonic API parameters
+    const username = localStorage.getItem('username') || 'admin'
+    const token = localStorage.getItem('subsonic-token') || ''
+    const salt = localStorage.getItem('subsonic-salt') || ''
+    const clientUniqueId = localStorage.getItem('clientUniqueId') || ''
+    
+    const response = await fetch(`/rest/deleteAlbum?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ND-Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'X-ND-Client-Unique-Id': clientUniqueId,
+      },
+      body: JSON.stringify({
+        albumId: albumId,
+      }),
+    })
+
+    const data = await response.json()
+    const subsonicResponse = data['subsonic-response'] || data
+    
+    if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
+      notify('Album deleted successfully', 'success')
+      // Trigger a refresh of the current view
+      window.location.reload()
+    } else {
+      const errorMsg = subsonicResponse.deleteResponse?.message || subsonicResponse.error?.message || 'Delete failed'
+      notify(errorMsg, 'error')
+    }
+  } catch (err) {
+    notify('Network error: ' + err.message, 'error')
+  }
+}
 
 const MoreButton = ({ record, onClick, info, ...rest }) => {
   const handleClick = record.missing
@@ -68,6 +105,7 @@ const ContextMenu = ({
   const dispatch = useDispatch()
   const translate = useTranslate()
   const notify = useNotify()
+  const { permissions } = usePermissions()
   const [anchorEl, setAnchorEl] = useState(null)
 
   const options = {
@@ -131,6 +169,32 @@ const ContextMenu = ({
         needData: true,
         label: translate('resources.album.actions.info'),
         action: () => dispatch(openExtendedInfoDialog(record)),
+      },
+    }),
+    edit: {
+      enabled: !record.missing,
+      needData: false,
+      label: translate('ra.action.edit'),
+      action: () => {
+        // Navigate to edit page for album
+        window.location.href = `/#/album/${record.id}`
+      },
+    },
+    ...(permissions === 'admin' && resource === 'album' && {
+      delete: {
+        enabled: !record.missing,
+        needData: false,
+        label: translate('resources.album.actions.delete'),
+        action: () => {
+          const confirmMessage = translate('resources.album.actions.deleteConfirm', {
+            name: record.name,
+            count: record.songCount || 0
+          })
+          
+          if (window.confirm(confirmMessage)) {
+            deleteAlbum(record.id, record.songCount || 0, notify)
+          }
+        },
       },
     }),
   }

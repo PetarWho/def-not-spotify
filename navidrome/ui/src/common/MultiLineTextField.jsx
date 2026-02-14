@@ -17,6 +17,13 @@ export const MultiLineTextField = memo(
     const record = useRecordContext(rest)
     const value = record && record[source]
     let lines = value ? value.split('\n') : []
+    
+    // Filter out YouTube URLs from comments
+    lines = lines.map(line => {
+      // Remove YouTube URLs (http://youtube.com, https://youtube.com, youtu.be)
+      return line.replace(/https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/\S+/g, '[YouTube URL removed]')
+    })
+    
     if (maxLines || firstLine) {
       lines = lines.slice(firstLine, maxLines)
     }
