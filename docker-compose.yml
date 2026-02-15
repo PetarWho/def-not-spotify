@@ -14,7 +14,21 @@ services:
       ND_DATAFOLDER: /data
       ND_PORT: 4533
     restart: unless-stopped
+    networks:
+      - navidrome-network
+
+  navidrome-tunnel:
+    container_name: navidrome-tunnel
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - navidrome
+    networks:
+      - navidrome-network
 
 networks:
-  music-network:
+  navidrome-network:
     driver: bridge
