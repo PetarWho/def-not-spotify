@@ -177,7 +177,7 @@ const ContextMenu = ({
       label: translate('ra.action.edit'),
       action: () => {
         // Navigate to edit page for album
-        window.location.href = `/#/album/${record.id}`
+        window.location.href = `/#/album/edit/${record.id}`
       },
     },
     ...(permissions === 'admin' && resource === 'album' && {

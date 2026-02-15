@@ -173,7 +173,7 @@ export const SongContextMenu = ({
       label: translate('ra.action.edit'),
       action: (record) => {
         // Navigate to edit page for song
-        window.location.href = `/#/song/${record.mediaFileId || record.id}`
+        window.location.href = `/#/song/edit/${record.mediaFileId || record.id}`
       },
     },
     delete: {
