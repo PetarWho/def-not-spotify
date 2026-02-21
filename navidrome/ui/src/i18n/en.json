@@ -638,12 +638,13 @@
     "downloadError": "Error downloading song"
   },
   "download": {
-    "youTube": "Download song from YouTube",
+    "youTube": "Download song from YouTube Music",
+    "youTubeSubtitle": "YouTube Music provides better metadata. Use YouTube only if the song cannot be found on YouTube Music.",
     "youTubeLibrary": "Download Library",
     "youTubeDefaultLibrary": "Default Library",
     "youTubeButton": "Download",
-    "youTubeUrl": "YouTube URL",
-    "youTubeHelpText": "Enter a YouTube URL to download and add to your library"
+    "youTubeUrl": "YouTube Music URL",
+    "youTubeHelpText": "Enter a YouTube Music URL to download and add to your library"
   },
   "player": {
     "playListsText": "Play Queue",

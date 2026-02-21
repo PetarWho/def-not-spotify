@@ -46,7 +46,11 @@ const DownloadDialog = ({ open, onClose }) => {
         const subsonicResponse = data['subsonic-response'] || data
         
         if (subsonicResponse.status === 'ok' && subsonicResponse.libraryResponse?.success) {
-          setLibraries(subsonicResponse.libraryResponse.libraries || [])
+          const libs = subsonicResponse.libraryResponse.libraries || []
+          setLibraries(libs)
+          if (libs.length === 1) {
+            setLibrary(libs[0].name)
+          }
         } else {
           console.error('Failed to fetch libraries:', subsonicResponse)
           setLibraries([{ id: 'default', name: 'Music Library' }])
@@ -138,6 +142,10 @@ const DownloadDialog = ({ open, onClose }) => {
       
       <form onSubmit={handleSubmit}>
         <DialogContent>
+          <Typography variant="body2" color="textSecondary" style={{ marginBottom: 16 }}>
+            {translate('download.youTubeSubtitle')}
+          </Typography>
+          
           {error && (
             <Box mb={2} p={2} style={{ backgroundColor: '#ffebee', borderRadius: 4, color: '#c62828' }}>
               <Typography variant="body2">
@@ -153,7 +161,7 @@ const DownloadDialog = ({ open, onClose }) => {
             onChange={(e) => setUrl(e.target.value)}
             margin="normal"
             required
-            placeholder="https://youtube.com/watch?v=..."
+            placeholder="https://music.youtube.com/watch?v=..."
             disabled={loading}
           />
           
