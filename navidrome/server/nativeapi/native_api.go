@@ -33,6 +33,10 @@ type PluginManager interface {
 	UnloadDisabledPlugins(ctx context.Context)
 }
 
+type TagEditor interface {
+	WriteTags(ctx context.Context, filePath string, tags map[string]string) error
+}
+
 type Router struct {
 	http.Handler
 	ds            model.DataStore
@@ -43,10 +47,11 @@ type Router struct {
 	users         core.User
 	maintenance   core.Maintenance
 	pluginManager PluginManager
+	tagEditor     TagEditor
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager) *Router {
-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager}
+func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, tagEditor TagEditor) *Router {
+	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, tagEditor: tagEditor}
 	r.Handler = r.routes()
 	return r
 }
@@ -78,6 +83,8 @@ func (api *Router) routes() http.Handler {
 		api.addPlaylistRoute(r)
 		api.addPlaylistTrackRoute(r)
 		api.addSongPlaylistsRoute(r)
+		api.addSongTagsRoute(r)
+		api.addAlbumTagsRoute(r)
 		api.addQueueRoute(r)
 		api.addMissingFilesRoute(r)
 		api.addKeepAliveRoute(r)
@@ -175,6 +182,14 @@ func (api *Router) addSongPlaylistsRoute(r chi.Router) {
 	r.With(server.URLParamsMiddleware).Get("/song/{id}/playlists", func(w http.ResponseWriter, r *http.Request) {
 		getSongPlaylists(api.ds)(w, r)
 	})
+}
+
+func (api *Router) addSongTagsRoute(r chi.Router) {
+	r.With(server.URLParamsMiddleware).Put("/song/{id}/tags", updateSongTags(api.ds, api.tagEditor))
+}
+
+func (api *Router) addAlbumTagsRoute(r chi.Router) {
+	r.With(server.URLParamsMiddleware).Put("/album/{id}/tags", updateAlbumTags(api.ds, api.tagEditor))
 }
 
 func (api *Router) addQueueRoute(r chi.Router) {

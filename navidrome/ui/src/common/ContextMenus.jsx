@@ -99,6 +99,7 @@ const ContextMenu = ({
   songQueryParams,
   hideShare,
   hideInfo,
+  hideEdit,
 }) => {
   const classes = useStyles({ color })
   const dataProvider = useDataProvider()
@@ -171,15 +172,16 @@ const ContextMenu = ({
         action: () => dispatch(openExtendedInfoDialog(record)),
       },
     }),
-    edit: {
-      enabled: !record.missing,
-      needData: false,
-      label: translate('ra.action.edit'),
-      action: () => {
-        // Navigate to edit page for album
-        window.location.href = `/#/album/edit/${record.id}`
+    ...(!hideEdit && {
+      edit: {
+        enabled: !record.missing && resource === 'album',
+        needData: false,
+        label: translate('ra.action.edit'),
+        action: () => {
+          window.location.href = `/#/album/edit/${record.id}`
+        },
       },
-    },
+    }),
     ...(permissions === 'admin' && resource === 'album' && {
       delete: {
         enabled: !record.missing,
@@ -319,6 +321,7 @@ export const ArtistContextMenu = (props) =>
     <ContextMenu
       {...props}
       hideInfo={true}
+      hideEdit={true}
       resource={'artist'}
       songQueryParams={{
         pagination: { page: 1, perPage: 200 },

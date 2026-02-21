@@ -20,6 +20,7 @@ var Set = wire.NewSet(
 	NewLibrary,
 	NewUser,
 	NewMaintenance,
+	NewTagEditor,
 	agents.GetAgents,
 	external.NewProvider,
 	wire.Bind(new(external.Agents), new(*agents.Agents)),
@@ -27,4 +28,5 @@ var Set = wire.NewSet(
 	scrobbler.GetPlayTracker,
 	playback.GetInstance,
 	metrics.GetInstance,
+	wire.Bind(new(TagEditor), new(*TagEditorImpl)),
 )

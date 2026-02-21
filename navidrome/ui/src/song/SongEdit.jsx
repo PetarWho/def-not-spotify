@@ -3,20 +3,18 @@ import { makeStyles } from '@material-ui/core/styles'
 import {
   TextInput,
   NumberInput,
-  ReferenceInput,
-  AutocompleteInput,
   Edit,
   required,
   SimpleForm,
   useTranslate,
   Toolbar,
   SaveButton,
-  useMutation,
   useNotify,
   useRedirect,
   useRefresh,
   Notification,
   useDataProvider,
+  useRecordContext,
 } from 'react-admin'
 import { Title } from '../common'
 
@@ -45,22 +43,38 @@ const SongEdit = (props) => {
   const notify = useNotify()
   const redirect = useRedirect()
   const refresh = useRefresh()
+  const record = useRecordContext()
 
   const save = useCallback(
     async (values) => {
       try {
-        // Show a message that song editing is not currently supported
-        notify('Song editing is not currently supported in Navidrome. Song metadata is automatically updated during library scans.', 'warning')
+        const songId = record?.id || values.id
+        if (!songId) {
+          notify('Cannot save: missing song ID', 'error')
+          return
+        }
         
-        // Redirect back to song list
+        const tags = {}
+        if (values.title !== undefined) tags.title = values.title
+        if (values.artist !== undefined) tags.artist = values.artist
+        if (values.album !== undefined) tags.album = values.album
+        if (values.genre !== undefined) tags.genre = values.genre
+        if (values.year !== undefined) tags.year = values.year
+        if (values.trackNumber !== undefined) tags.trackNumber = values.trackNumber
+        if (values.discNumber !== undefined) tags.discNumber = values.discNumber
+        if (values.comment !== undefined) tags.comment = values.comment
+
+        await dataProvider.updateSongTags(songId, tags)
+        
+        notify('Song metadata updated successfully')
+        refresh()
         redirect('/song')
-        return
       } catch (error) {
         console.error('Error in song edit:', error)
-        notify('ra.notification.http_error', 'warning')
+        notify('Failed to update song metadata: ' + (error.message || 'Unknown error'), 'warning')
       }
     },
-    [notify, redirect],
+    [dataProvider, notify, redirect, refresh, record],
   )
 
   return (
@@ -82,14 +96,6 @@ const SongEdit = (props) => {
             label={translate('resources.song.fields.artist')}
             fullWidth
           />
-          <ReferenceInput
-            source="albumId"
-            reference="album"
-            label={translate('resources.song.fields.album')}
-            filterToQuery={(searchText) => ({ name: searchText })}
-          >
-            <AutocompleteInput optionText="name" fullWidth />
-          </ReferenceInput>
           <TextInput
             source="album"
             label={translate('resources.song.fields.albumName')}

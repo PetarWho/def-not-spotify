@@ -5,6 +5,7 @@
       "name": "Song |||| Songs",
       "fields": {
         "albumArtist": "Album Artist",
+        "albumName": "Album Name",
         "duration": "Time",
         "trackNumber": "#",
         "playCount": "Plays",
@@ -24,6 +25,7 @@
         "sampleRate": "Sample rate",
         "channels": "Channels",
         "discSubtitle": "Disc Subtitle",
+        "discNumber": "Disc Number",
         "starred": "Favourite",
         "comment": "Comment",
         "rating": "Rating",

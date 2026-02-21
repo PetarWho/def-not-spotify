@@ -3,19 +3,18 @@ import { makeStyles } from '@material-ui/core/styles'
 import {
   TextInput,
   NumberInput,
-  DateInput,
   Edit,
   required,
   SimpleForm,
   useTranslate,
   Toolbar,
   SaveButton,
-  useMutation,
   useNotify,
   useRedirect,
   useRefresh,
   Notification,
   useDataProvider,
+  useRecordContext,
 } from 'react-admin'
 import { Title } from '../common'
 
@@ -44,22 +43,39 @@ const AlbumEdit = (props) => {
   const notify = useNotify()
   const redirect = useRedirect()
   const refresh = useRefresh()
+  const record = useRecordContext()
 
   const save = useCallback(
     async (values) => {
       try {
-        // Show a message that album editing is not currently supported
-        notify('Album editing is not currently supported in Navidrome. Album metadata is automatically updated during library scans.', 'warning')
+        const albumId = record?.id || values.id
+        if (!albumId) {
+          notify('Cannot save: missing album ID', 'error')
+          return
+        }
         
-        // Redirect back to album list
+        const tags = {}
+        if (values.name !== undefined) tags.name = values.name
+        if (values.albumArtist !== undefined) tags.albumArtist = values.albumArtist
+        if (values.genre !== undefined) tags.genre = values.genre
+        if (values.maxYear !== undefined) tags.year = values.maxYear
+        if (values.comment !== undefined) tags.comment = values.comment
+
+        const result = await dataProvider.updateAlbumTags(albumId, tags)
+        
+        if (result.data.errorCount > 0) {
+          notify(`Updated ${result.data.successCount} songs, ${result.data.errorCount} errors`, 'warning')
+        } else {
+          notify(`Album metadata updated successfully (${result.data.successCount} songs)`)
+        }
+        refresh()
         redirect('/album')
-        return
       } catch (error) {
         console.error('Error in album edit:', error)
-        notify('ra.notification.http_error', 'warning')
+        notify('Failed to update album metadata: ' + (error.message || 'Unknown error'), 'warning')
       }
     },
-    [notify, redirect],
+    [dataProvider, notify, redirect, refresh, record],
   )
 
   return (
@@ -77,11 +93,6 @@ const AlbumEdit = (props) => {
             fullWidth
           />
           <TextInput
-            source="artist"
-            label={translate('resources.album.fields.artist')}
-            fullWidth
-          />
-          <TextInput
             source="albumArtist"
             label={translate('resources.album.fields.albumArtist')}
             fullWidth
@@ -92,12 +103,8 @@ const AlbumEdit = (props) => {
             fullWidth
           />
           <NumberInput
-            source="year"
+            source="maxYear"
             label={translate('resources.album.fields.year')}
-          />
-          <DateInput
-            source="releaseDate"
-            label={translate('resources.album.fields.releaseDate')}
           />
           <TextInput
             source="comment"
