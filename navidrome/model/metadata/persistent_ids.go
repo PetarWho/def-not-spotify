@@ -1,13 +1,11 @@
 package metadata
 
 import (
-	"cmp"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/id"
@@ -97,15 +95,49 @@ func (md Metadata) artistID(name string) string {
 }
 
 func (md Metadata) mapTrackTitle() string {
-	if title := md.String(model.TagTitle); title != "" {
-		return title
+	title := md.String(model.TagTitle)
+	if title == "" {
+		return utils.BaseName(md.FilePath())
 	}
-	return utils.BaseName(md.FilePath())
+
+	artist := md.String(model.TagTrackArtist)
+	if artist != "" {
+		prefix := artist + " - "
+		if strings.HasPrefix(title, prefix) {
+			title = strings.TrimPrefix(title, prefix)
+		}
+	}
+
+	suffixes := []string{
+		"(Official Music Video)",
+		"[Official Music Video]",
+		"(Official Audio)",
+		"[Official Audio]",
+		"(Official Lyric Video)",
+		"[Official Lyric Video]",
+		"(Lyric Video)",
+		"[Lyric Video]",
+		"(Lyrics)",
+		"[Lyrics]",
+		"(Audio)",
+		"[Audio]",
+		"(Visualizer)",
+		"[Visualizer]",
+		"(Music Video)",
+		"[Music Video]",
+	}
+	for _, suffix := range suffixes {
+		title = strings.TrimSuffix(title, suffix)
+	}
+
+	title = strings.TrimSpace(title)
+
+	return title
 }
 
 func (md Metadata) mapAlbumName() string {
-	return cmp.Or(
-		md.String(model.TagAlbum),
-		consts.UnknownAlbum,
-	)
+	if album := md.String(model.TagAlbum); album != "" {
+		return album
+	}
+	return md.mapTrackTitle()
 }
