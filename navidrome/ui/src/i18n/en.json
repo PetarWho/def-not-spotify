@@ -610,6 +610,7 @@
     "settings": "Settings",
     "version": "Version",
     "theme": "Theme",
+    "liked": "Liked",
     "personal": {
       "name": "Personal",
       "options": {
