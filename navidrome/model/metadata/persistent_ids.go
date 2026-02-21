@@ -132,6 +132,17 @@ func (md Metadata) mapTrackTitle() string {
 
 	title = strings.TrimSpace(title)
 
+	if len(title) >= 2 {
+		rs := []rune(title)
+		if len(rs) >= 2 && isQuoteRune(rs[0]) {
+			if isQuoteRune(rs[len(rs)-1]) {
+				title = string(rs[1 : len(rs)-1])
+			}
+		}
+	}
+
+	title = strings.TrimSpace(title)
+
 	return title
 }
 
