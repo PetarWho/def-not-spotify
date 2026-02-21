@@ -62,6 +62,14 @@ const DownloadDialog = ({ open, onClose }) => {
     }
   }, [open])
 
+  const cleanUrl = (url) => {
+    const idx = url.indexOf('&')
+    if (idx !== -1) {
+      return url.substring(0, idx)
+    }
+    return url
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!url.trim()) {
@@ -77,6 +85,7 @@ const DownloadDialog = ({ open, onClose }) => {
       const username = localStorage.getItem('username') || 'admin'
       const token = localStorage.getItem('subsonic-token') || ''
       const salt = localStorage.getItem('subsonic-salt') || ''
+      const cleanedUrl = cleanUrl(url.trim())
       
       const response = await fetch(`/rest/downloadSong?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
         method: 'POST',
@@ -84,7 +93,7 @@ const DownloadDialog = ({ open, onClose }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          url: url.trim(),
+          url: cleanedUrl,
           library: library.trim() || undefined,
         }),
       })
