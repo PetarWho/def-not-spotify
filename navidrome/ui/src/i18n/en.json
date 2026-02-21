@@ -43,6 +43,7 @@
       },
       "actions": {
         "addToQueue": "Play Later",
+        "instantMix": "Instant Mix",
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
         "showInPlaylist": "Show in Playlist",
@@ -89,6 +90,7 @@
         "playAll": "Play",
         "playNext": "Play Next",
         "addToQueue": "Play Later",
+        "instantMix": "Instant Mix",
         "share": "Share",
         "shuffle": "Shuffle",
         "addToPlaylist": "Add to Playlist",
