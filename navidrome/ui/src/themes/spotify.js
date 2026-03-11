@@ -312,9 +312,6 @@ export default {
         fontSize: '0.675rem',
         color: '#b3b3b3',
       },
-      player: {
-        border: '10px solid blue',
-      },
     },
     NDLogin: {
       main: {

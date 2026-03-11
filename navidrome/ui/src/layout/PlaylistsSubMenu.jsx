@@ -111,24 +111,6 @@ const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
         actionIcon={<BiCog />}
         onAction={onPlaylistConfig}
       >
-        {config.enableFavourites && (
-          <>
-            <Divider />
-            <MenuItemLink
-              to="/liked"
-              primaryText={
-                <Typography variant="inherit" noWrap>
-                  {translate('menu.liked')}
-                </Typography>
-              }
-              leftIcon={
-                <FavoriteBorderIcon />
-              }
-              sidebarIsOpen={sidebarIsOpen}
-              dense={false}
-            />
-          </>
-        )}
         {myPlaylists.map(renderPlaylistMenuItemLink)}
       </SubMenu>
       {sharedPlaylists?.length > 0 && (
