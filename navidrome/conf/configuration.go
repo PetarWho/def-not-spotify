@@ -104,6 +104,9 @@ type configOptions struct {
 	Spotify                         spotifyOptions      `json:",omitzero"`
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
+	YTDLPCookiesFile                string
+	YTDLPUsername                   string
+	YTDLPPassword                   string
 	EnableScrobbleHistory           bool
 	Tags                            map[string]TagConf `json:",omitempty"`
 	Agents                          string
@@ -642,6 +645,9 @@ func setViperDefaults() {
 	viper.SetDefault("subsonic.enableaveragerating", true)
 	viper.SetDefault("subsonic.legacyclients", "DSub")
 	viper.SetDefault("subsonic.minimalclients", "SubMusic")
+	viper.SetDefault("ytdlpcookiesfile", "")
+	viper.SetDefault("ytdlpusername", "")
+	viper.SetDefault("ytdlppassword", "")
 	viper.SetDefault("agents", "lastfm,spotify,deezer")
 	viper.SetDefault("lastfm.enabled", true)
 	viper.SetDefault("lastfm.language", consts.DefaultInfoLanguage)

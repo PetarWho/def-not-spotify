@@ -120,8 +120,8 @@ FROM public.ecr.aws/docker/library/alpine:3.20 AS final
 LABEL maintainer="deluan@navidrome.org"
 LABEL org.opencontainers.image.source="https://github.com/navidrome/navidrome"
 
-# Install ffmpeg, mpv, sqlite, and yt-dlp
-RUN apk add -U --no-cache ffmpeg mpv sqlite python3 py3-pip && \
+# Install ffmpeg, mpv, sqlite, nodejs (for yt-dlp) and yt-dlp
+RUN apk add -U --no-cache ffmpeg mpv sqlite nodejs python3 py3-pip && \
     pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Copy navidrome binary

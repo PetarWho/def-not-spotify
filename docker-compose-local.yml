@@ -20,17 +20,17 @@ services:
     networks:
       - navidrome-network
 
-  navidrome-tunnel:
-    container_name: navidrome-tunnel
-    image: cloudflare/cloudflared:latest
-    restart: always
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - navidrome
-    networks:
-      - navidrome-network
+  # navidrome-tunnel:
+  #   container_name: navidrome-tunnel
+  #   image: cloudflare/cloudflared:latest
+  #   restart: always
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - navidrome
+  #   networks:
+  #     - navidrome-network
 
 networks:
   navidrome-network:

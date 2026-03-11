@@ -87,16 +87,31 @@ func (api *Router) downloadWithYTDLP(url, outputDir string) (string, error) {
 	// Use yt-dlp to download the audio
 	outputPattern := filepath.Join(outputDir, "%(artist)s - %(title)s.%(ext)s")
 	
-	cmd := exec.Command("yt-dlp", 
+	args := []string{
 		"-x", 
 		"--audio-format", "mp3", 
 		"--add-metadata",
 		"--no-write-comments",
 		"--no-write-description",
 		"--embed-thumbnail",
+		"--js-runtimes", "node",
+		"--remote-components", "ejs:github",
 		"-o", outputPattern,
-		url,
-	)
+	}
+
+	if conf.Server.YTDLPCookiesFile != "" {
+		args = append(args, "--cookies", conf.Server.YTDLPCookiesFile)
+	}
+	if conf.Server.YTDLPUsername != "" {
+		args = append(args, "--username", conf.Server.YTDLPUsername)
+	}
+	if conf.Server.YTDLPPassword != "" {
+		args = append(args, "--password", conf.Server.YTDLPPassword)
+	}
+
+	args = append(args, url)
+	
+	cmd := exec.Command("yt-dlp", args...)
 
 	cmd.Dir = outputDir
 	
