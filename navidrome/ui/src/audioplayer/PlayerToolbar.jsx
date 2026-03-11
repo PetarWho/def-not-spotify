@@ -58,9 +58,9 @@ const useStyles = makeStyles((theme) => ({
 const PlayerToolbar = ({ id, isRadio, record }) => {
   const dispatch = useDispatch()
   const { data, loading } = useGetOne('song', id, {
-    enabled: !!id && !isRadio && !record,
+    enabled: !!id && !isRadio,
   })
-  const songData = record || data
+  const songData = data || record
   const [toggleLove, toggling] = useToggleLove('song', songData)
   const isDesktop = useMediaQuery('(min-width:810px)')
   const classes = useStyles()
@@ -94,6 +94,7 @@ const PlayerToolbar = ({ id, isRadio, record }) => {
 
   const loveButton = (
     <LoveButton
+      key={id}
       record={songData}
       resource={'song'}
       size={isDesktop ? undefined : 'inherit'}

@@ -48,7 +48,7 @@ export const LoveButton = ({
   ...rest
 }) => {
   const record = useRecordContext({ record: recordProp }) || {}
-  const loved = !!(record.starred || (record.starredAt && isDateSet(record.starredAt)))
+  const loved = !!(isDateSet(record.starred) || record.starred === true)
   const classes = useStyles({ color, visible, loved })
   const [toggleLove, loading] = useToggleLove(resource, record)
 

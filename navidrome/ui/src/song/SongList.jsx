@@ -122,6 +122,7 @@ const SongFilter = (props) => {
         <QuickFilter
           source="starred"
           label={<FavoriteIcon fontSize={'small'} />}
+          defaultValue={true}
         />
       )}
       {isAdmin && <NullableBooleanInput source="missing" />}
@@ -214,7 +215,6 @@ const SongList = (props) => {
         bulkActionButtons={<SongBulkActions />}
         actions={<SongListActions />}
         filters={<SongFilter />}
-        filterDefaultValues={{}}
         perPage={isXsmall ? 50 : 15}
       >
         {isXsmall ? (
