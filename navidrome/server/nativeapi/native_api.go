@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/metrics"
+	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -28,30 +29,25 @@ type PluginManager interface {
 	ValidatePluginConfig(ctx context.Context, id, configJSON string) error
 	UpdatePluginConfig(ctx context.Context, id, configJSON string) error
 	UpdatePluginUsers(ctx context.Context, id, usersJSON string, allUsers bool) error
-	UpdatePluginLibraries(ctx context.Context, id, librariesJSON string, allLibraries bool) error
+	UpdatePluginLibraries(ctx context.Context, id, librariesJSON string, allLibraries, allowWriteAccess bool) error
 	RescanPlugins(ctx context.Context) error
 	UnloadDisabledPlugins(ctx context.Context)
-}
-
-type TagEditor interface {
-	WriteTags(ctx context.Context, filePath string, tags map[string]string) error
 }
 
 type Router struct {
 	http.Handler
 	ds            model.DataStore
 	share         core.Share
-	playlists     core.Playlists
+	playlists     playlistsvc.Playlists
 	insights      metrics.Insights
 	libs          core.Library
 	users         core.User
 	maintenance   core.Maintenance
 	pluginManager PluginManager
-	tagEditor     TagEditor
 }
 
-func New(ds model.DataStore, share core.Share, playlists core.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, tagEditor TagEditor) *Router {
-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, tagEditor: tagEditor}
+func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager) *Router {
+	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager}
 	r.Handler = r.routes()
 	return r
 }
@@ -83,8 +79,6 @@ func (api *Router) routes() http.Handler {
 		api.addPlaylistRoute(r)
 		api.addPlaylistTrackRoute(r)
 		api.addSongPlaylistsRoute(r)
-		api.addSongTagsRoute(r)
-		api.addAlbumTagsRoute(r)
 		api.addQueueRoute(r)
 		api.addMissingFilesRoute(r)
 		api.addKeepAliveRoute(r)
@@ -128,7 +122,7 @@ func (api *Router) RX(r chi.Router, pathPrefix string, constructor rest.Reposito
 
 func (api *Router) addPlaylistRoute(r chi.Router) {
 	constructor := func(ctx context.Context) rest.Repository {
-		return api.ds.Resource(ctx, model.Playlist{})
+		return api.playlists.NewRepository(ctx)
 	}
 
 	r.Route("/playlist", func(r chi.Router) {
@@ -146,6 +140,8 @@ func (api *Router) addPlaylistRoute(r chi.Router) {
 			r.Get("/", rest.Get(constructor))
 			r.Put("/", rest.Put(constructor))
 			r.Delete("/", rest.Delete(constructor))
+			r.Post("/image", uploadPlaylistImage(api.playlists))
+			r.Delete("/image", deletePlaylistImage(api.playlists))
 		})
 	})
 }
@@ -153,26 +149,26 @@ func (api *Router) addPlaylistRoute(r chi.Router) {
 func (api *Router) addPlaylistTrackRoute(r chi.Router) {
 	r.Route("/playlist/{playlistId}/tracks", func(r chi.Router) {
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			getPlaylist(api.ds)(w, r)
+			getPlaylist(api.playlists)(w, r)
 		})
 		r.With(server.URLParamsMiddleware).Route("/", func(r chi.Router) {
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(api.ds)(w, r)
+				deleteFromPlaylist(api.playlists)(w, r)
 			})
 			r.Post("/", func(w http.ResponseWriter, r *http.Request) {
-				addToPlaylist(api.ds)(w, r)
+				addToPlaylist(api.playlists)(w, r)
 			})
 		})
 		r.Route("/{id}", func(r chi.Router) {
 			r.Use(server.URLParamsMiddleware)
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-				getPlaylistTrack(api.ds)(w, r)
+				getPlaylistTrack(api.playlists)(w, r)
 			})
 			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				reorderItem(api.ds)(w, r)
+				reorderItem(api.playlists)(w, r)
 			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deleteFromPlaylist(api.ds)(w, r)
+				deleteFromPlaylist(api.playlists)(w, r)
 			})
 		})
 	})
@@ -180,16 +176,8 @@ func (api *Router) addPlaylistTrackRoute(r chi.Router) {
 
 func (api *Router) addSongPlaylistsRoute(r chi.Router) {
 	r.With(server.URLParamsMiddleware).Get("/song/{id}/playlists", func(w http.ResponseWriter, r *http.Request) {
-		getSongPlaylists(api.ds)(w, r)
+		getSongPlaylists(api.playlists)(w, r)
 	})
-}
-
-func (api *Router) addSongTagsRoute(r chi.Router) {
-	r.With(server.URLParamsMiddleware).Put("/song/{id}/tags", updateSongTags(api.ds, api.tagEditor))
-}
-
-func (api *Router) addAlbumTagsRoute(r chi.Router) {
-	r.With(server.URLParamsMiddleware).Put("/album/{id}/tags", updateAlbumTags(api.ds, api.tagEditor))
 }
 
 func (api *Router) addQueueRoute(r chi.Router) {
@@ -222,7 +210,7 @@ func writeDeleteManyResponse(w http.ResponseWriter, r *http.Request, ids []strin
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
-	_, err = w.Write(resp)
+	_, err = w.Write(resp) //nolint:gosec
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -258,7 +246,7 @@ func (api *Router) addInsightsRoute(r chi.Router) {
 	r.Get("/insights/*", func(w http.ResponseWriter, r *http.Request) {
 		last, success := api.insights.LastRun(r.Context())
 		if conf.Server.EnableInsightsCollector {
-			_, _ = w.Write([]byte(`{"id":"insights_status", "lastRun":"` + last.Format("2006-01-02 15:04:05") + `", "success":` + strconv.FormatBool(success) + `}`))
+			_, _ = w.Write([]byte(`{"id":"insights_status", "lastRun":"` + last.Format("2006-01-02 15:04:05") + `", "success":` + strconv.FormatBool(success) + `}`)) //nolint:gosec
 		} else {
 			_, _ = w.Write([]byte(`{"id":"insights_status", "lastRun":"disabled", "success":false}`))
 		}
