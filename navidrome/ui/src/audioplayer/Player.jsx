@@ -215,7 +215,7 @@ const Player = () => {
       playIndex: playerState.playIndex,
       autoPlay:
         playerState.autoPlay !== false &&
-        (playerState.clear || playerState.playIndex === 0),
+        (playerState.clear || playerState.playIndex === 0 || playerState.autoPlay === true),
       clearPriorAudioLists: playerState.clear,
       extendsContent: (
         <PlayerToolbar
