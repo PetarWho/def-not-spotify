@@ -144,3 +144,4 @@ EXPOSE ${ND_PORT}
 WORKDIR /app
 
 ENTRYPOINT ["/app/navidrome"]
+
