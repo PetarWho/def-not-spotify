@@ -173,7 +173,7 @@ const Player = () => {
       playMode: playerState.mode,
       mode: 'full',
       loadAudioErrorPlayNext: false,
-      autoPlayInitLoadPlayList: true,
+      autoPlayInitLoadPlayList: false,
       clearPriorAudioLists: false,
       showDestroy: true,
       showDownload: false,

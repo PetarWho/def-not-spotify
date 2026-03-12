@@ -41,8 +41,11 @@ const createAdminStore = ({
     compose
 
   const persistedState = loadState()
-  if (persistedState?.player?.savedPlayIndex) {
-    persistedState.player.playIndex = persistedState.player.savedPlayIndex
+  if (persistedState?.player) {
+    if (persistedState.player.savedPlayIndex >= 0) {
+      persistedState.player.playIndex = persistedState.player.savedPlayIndex
+    }
+    persistedState.player.autoPlay = false
   }
   const store = createStore(
     resettableAppReducer,
