@@ -4,12 +4,10 @@ import {
   useDataProvider,
   useNotify,
   useQueryWithStore,
-  useTranslate,
 } from 'react-admin'
 import { useHistory } from 'react-router-dom'
 import QueueMusicIcon from '@material-ui/icons/QueueMusic'
-import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
-import { Typography, Divider } from '@material-ui/core'
+import { Typography } from '@material-ui/core'
 import QueueMusicOutlinedIcon from '@material-ui/icons/QueueMusicOutlined'
 import { BiCog } from 'react-icons/bi'
 import { useDrop } from 'react-dnd'
@@ -53,7 +51,6 @@ const PlaylistMenuItemLink = ({ pls, sidebarIsOpen }) => {
 
 const PlaylistsSubMenu = ({ state, setState, sidebarIsOpen, dense }) => {
   const history = useHistory()
-  const translate = useTranslate()
   const { data, loaded } = useQueryWithStore({
     type: 'getList',
     resource: 'playlist',

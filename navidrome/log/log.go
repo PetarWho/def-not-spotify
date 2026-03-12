@@ -34,7 +34,6 @@ var redacted = &Hook{
 		"(MetricsPath:[\\s]*\")[^\"]*",
 		"(DevAutoCreateAdminPassword:[\\s]*\")[^\"]*",
 		"(DevAutoLoginUsername:[\\s]*\")[^\"]*",
-		"(YTDLPPassword:[\\s]*\")[^\"]*",
 
 		// UI appConfig
 		"(subsonicToken:)[\\w]+(\\s)",

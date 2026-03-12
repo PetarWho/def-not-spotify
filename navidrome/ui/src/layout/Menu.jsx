@@ -1,14 +1,10 @@
 import React, { useState } from 'react'
 import { useSelector } from 'react-redux'
-import { useLocation } from 'react-router-dom'
 import { Divider, makeStyles } from '@material-ui/core'
 import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
-import FavoriteIcon from '@material-ui/icons/Favorite'
-import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
-import MusicNoteOutlinedIcon from '@material-ui/icons/MusicNoteOutlined'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
@@ -56,11 +52,6 @@ const Menu = ({ dense = false }) => {
   const queue = useSelector((state) => state.player?.queue)
   const classes = useStyles({ addPadding: queue.length > 0 })
   const resources = useSelector(getResources)
-  const location = useLocation()
-
-  const isLiked =
-    location.pathname === '/song' &&
-    location.search.includes('%22starred%22%3Atrue')
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
@@ -73,32 +64,17 @@ const Menu = ({ dense = false }) => {
     setState((state) => ({ ...state, [menu]: !state[menu] }))
   }
 
-  const renderResourceMenuItemLink = (resource) => {
-    let isActive = undefined
-    let icon = resource.icon
-    let to = `/${resource.name}`
-
-    if (resource.name === 'song') {
-      to = `/${resource.name}?filter=%7B%7D`
-      isActive = (match) => match && !isLiked
-      if (isLiked) {
-        icon = <MusicNoteOutlinedIcon />
-      }
-    }
-
-    return (
-      <MenuItemLink
-        key={resource.name}
-        to={to}
-        activeClassName={classes.active}
-        primaryText={translatedResourceName(resource, translate)}
-        leftIcon={icon || <ViewListIcon />}
-        sidebarIsOpen={open}
-        dense={dense}
-        isActive={isActive}
-      />
-    )
-  }
+  const renderResourceMenuItemLink = (resource) => (
+    <MenuItemLink
+      key={resource.name}
+      to={`/${resource.name}`}
+      activeClassName={classes.active}
+      primaryText={translatedResourceName(resource, translate)}
+      leftIcon={resource.icon || <ViewListIcon />}
+      sidebarIsOpen={open}
+      dense={dense}
+    />
+  )
 
   const renderAlbumMenuItemLink = (type, al) => {
     const resource = resources.find((r) => r.name === 'album')
@@ -150,17 +126,6 @@ const Menu = ({ dense = false }) => {
         )}
       </SubMenu>
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
-      {config.enableFavourites && (
-        <MenuItemLink
-          to="/liked"
-          activeClassName={classes.active}
-          primaryText={translate('menu.liked')}
-          leftIcon={isLiked ? <FavoriteIcon /> : <FavoriteBorderIcon />}
-          sidebarIsOpen={open}
-          dense={dense}
-          isActive={() => isLiked}
-        />
-      )}
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />

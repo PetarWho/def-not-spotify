@@ -28,17 +28,21 @@ COPY --from=xx-build /out/ /usr/bin/
 ### Get TagLib
 FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/alpine:3.20 AS taglib-build
 ARG TARGETPLATFORM
-ARG CROSS_TAGLIB_VERSION=2.1.1-2
+ARG CROSS_TAGLIB_VERSION=2.2.0-1
 ENV CROSS_TAGLIB_RELEASES_URL=https://github.com/navidrome/cross-taglib/releases/download/v${CROSS_TAGLIB_VERSION}/
 
 # wget in busybox can't follow redirects
-RUN apk add --no-cache curl && \
-    PLATFORM=$(echo ${TARGETPLATFORM} | tr '/' '-') && \
-    FILE=taglib-${PLATFORM}.tar.gz && \
-    DOWNLOAD_URL=${CROSS_TAGLIB_RELEASES_URL}${FILE} && \
-    curl -L -o ${FILE} ${DOWNLOAD_URL} && \
-    mkdir /taglib && \
+RUN <<EOT
+    apk add --no-cache wget
+    PLATFORM=$(echo ${TARGETPLATFORM} | tr '/' '-')
+    FILE=taglib-${PLATFORM}.tar.gz
+
+    DOWNLOAD_URL=${CROSS_TAGLIB_RELEASES_URL}${FILE}
+    wget ${DOWNLOAD_URL}
+
+    mkdir /taglib
     tar -xzf ${FILE} -C /taglib
+EOT
 
 ########################################################################################################################
 ### Build Navidrome UI
@@ -48,10 +52,7 @@ WORKDIR /app
 # Install node dependencies
 COPY ui/package.json ui/package-lock.json ./
 COPY ui/bin/ ./bin/
-RUN chmod +x ./bin/update-workbox.sh && \
-    ls -la ./bin/ && \
-    ./bin/update-workbox.sh || echo "Script failed, continuing..."
-RUN npm ci --ignore-scripts
+RUN npm ci
 
 # Build bundle
 COPY ui/ ./
@@ -88,25 +89,31 @@ RUN --mount=type=bind,source=. \
     --mount=from=osxcross,src=/osxcross/SDK,target=/xx-sdk,ro \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg/mod \
-    --mount=from=taglib-build,target=/taglib,src=/taglib,ro \
-    /bin/sh -c 'set -e; \
-        xx-go --wrap; \
-        export CGO_ENABLED=1; \
-        export CGO_CFLAGS_ALLOW="--define-prefix"; \
-        export PKG_CONFIG_PATH=/taglib/lib/pkgconfig; \
-        cat $(go env GOENV); \
-        if [ "$(xx-info os)" != "darwin" ]; then \
-            export CC=$(xx-info)-gcc; \
-            export CXX=$(xx-info)-g++; \
-            export LD_EXTRA="-extldflags -static"; \
-        fi; \
-        if [ "$(xx-info os)" = "windows" ]; then \
-            export EXT=".exe"; \
-        fi; \
-        go build -tags=netgo -ldflags="${LD_EXTRA} -w -s \
-            -X github.com/navidrome/navidrome/consts.gitSha=${GIT_SHA} \
-            -X github.com/navidrome/navidrome/consts.gitTag=${GIT_TAG}" \
-            -o /out/navidrome${EXT} .'
+    --mount=from=taglib-build,target=/taglib,src=/taglib,ro <<EOT
+
+    # Setup CGO cross-compilation environment
+    xx-go --wrap
+    export CGO_ENABLED=1
+    export CGO_CFLAGS_ALLOW="--define-prefix"
+    export PKG_CONFIG_PATH=/taglib/lib/pkgconfig
+    cat $(go env GOENV)
+
+    # Only Darwin (macOS) requires clang (default), Windows requires gcc, everything else can use any compiler.
+    # So let's use gcc for everything except Darwin.
+    if [ "$(xx-info os)" != "darwin" ]; then
+        export CC=$(xx-info)-gcc
+        export CXX=$(xx-info)-g++
+        export LD_EXTRA="-extldflags '-static -latomic'"
+    fi
+    if [ "$(xx-info os)" = "windows" ]; then
+        export EXT=".exe"
+    fi
+
+    go build -tags=netgo,sqlite_fts5 -ldflags="${LD_EXTRA} -w -s \
+        -X github.com/navidrome/navidrome/consts.gitSha=${GIT_SHA} \
+        -X github.com/navidrome/navidrome/consts.gitTag=${GIT_TAG}" \
+        -o /out/navidrome${EXT} .
+EOT
 
 # Verify if the binary was built for the correct platform and it is statically linked
 RUN xx-verify --static /out/navidrome*
@@ -120,9 +127,8 @@ FROM public.ecr.aws/docker/library/alpine:3.20 AS final
 LABEL maintainer="deluan@navidrome.org"
 LABEL org.opencontainers.image.source="https://github.com/navidrome/navidrome"
 
-# Install ffmpeg, mpv, sqlite, nodejs (for yt-dlp) and yt-dlp
-RUN apk add -U --no-cache ffmpeg mpv sqlite nodejs python3 py3-pip && \
-    pip3 install --no-cache-dir --break-system-packages yt-dlp
+# Install ffmpeg and mpv
+RUN apk add -U --no-cache ffmpeg mpv sqlite
 
 # Copy navidrome binary
 COPY --from=build /out/navidrome /app/
@@ -138,4 +144,3 @@ EXPOSE ${ND_PORT}
 WORKDIR /app
 
 ENTRYPOINT ["/app/navidrome"]
-

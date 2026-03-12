@@ -5,22 +5,25 @@ import (
 	"github.com/navidrome/navidrome/core/agents"
 	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/lyrics"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/playback"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/scrobbler"
+	"github.com/navidrome/navidrome/core/stream"
 )
 
 var Set = wire.NewSet(
-	NewMediaStreamer,
-	GetTranscodingCache,
+	stream.NewMediaStreamer,
+	stream.GetTranscodingCache,
 	NewArchiver,
 	NewPlayers,
 	NewShare,
-	NewPlaylists,
+	playlists.NewPlaylists,
 	NewLibrary,
 	NewUser,
 	NewMaintenance,
-	NewTagEditor,
+	stream.NewTranscodeDecider,
 	agents.GetAgents,
 	external.NewProvider,
 	wire.Bind(new(external.Agents), new(*agents.Agents)),
@@ -28,5 +31,5 @@ var Set = wire.NewSet(
 	scrobbler.GetPlayTracker,
 	playback.GetInstance,
 	metrics.GetInstance,
-	wire.Bind(new(TagEditor), new(*TagEditorImpl)),
+	lyrics.NewLyrics,
 )

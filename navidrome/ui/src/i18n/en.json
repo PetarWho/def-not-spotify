@@ -5,7 +5,6 @@
       "name": "Song |||| Songs",
       "fields": {
         "albumArtist": "Album Artist",
-        "albumName": "Album Name",
         "duration": "Time",
         "trackNumber": "#",
         "playCount": "Plays",
@@ -25,7 +24,6 @@
         "sampleRate": "Sample rate",
         "channels": "Channels",
         "discSubtitle": "Disc Subtitle",
-        "discNumber": "Disc Number",
         "starred": "Favourite",
         "comment": "Comment",
         "rating": "Rating",
@@ -43,7 +41,6 @@
       },
       "actions": {
         "addToQueue": "Play Later",
-        "instantMix": "Instant Mix",
         "playNow": "Play Now",
         "addToPlaylist": "Add to Playlist",
         "showInPlaylist": "Show in Playlist",
@@ -51,8 +48,7 @@
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info",
-        "delete": "Delete Song",
-        "deleteConfirm": "Are you sure you want to delete '%{title}'? This action cannot be undone."
+        "instantMix": "Instant Mix"
       }
     },
     "album": {
@@ -90,14 +86,11 @@
         "playAll": "Play",
         "playNext": "Play Next",
         "addToQueue": "Play Later",
-        "instantMix": "Instant Mix",
         "share": "Share",
         "shuffle": "Shuffle",
         "addToPlaylist": "Add to Playlist",
         "download": "Download",
-        "info": "Get Info",
-        "delete": "Delete Album",
-        "deleteConfirm": "Are you sure you want to delete '%{name}'? This will permanently remove all %{count} songs in this album and cannot be undone."
+        "info": "Get Info"
       },
       "lists": {
         "all": "All",
@@ -225,9 +218,15 @@
         "makePrivate": "Make Private",
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
-        "removeFromSelection": "Remove from selection"
+        "removeFromSelection": "Remove from selection",
+        "uploadCover": "Upload Cover",
+        "removeCover": "Remove Cover"
       },
       "message": {
+        "coverUploaded": "Cover art updated",
+        "coverRemoved": "Cover art removed",
+        "coverUploadError": "Error uploading cover art",
+        "coverRemoveError": "Error removing cover art",
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
@@ -362,7 +361,8 @@
         "allUsers": "Allow all users",
         "selectedUsers": "Selected users",
         "allLibraries": "Allow all libraries",
-        "selectedLibraries": "Selected libraries"
+        "selectedLibraries": "Selected libraries",
+        "allowWriteAccess": "Allow write access"
       },
       "sections": {
         "status": "Status",
@@ -407,6 +407,7 @@
         "allLibrariesHelp": "When enabled, the plugin will have access to all libraries, including those created in the future.",
         "noLibraries": "No libraries selected",
         "librariesRequired": "This plugin requires access to library information. Select which libraries the plugin can access, or enable 'Allow all libraries'.",
+        "allowWriteAccessHelp": "When enabled, the plugin can modify files in the library directories. By default, plugins have read-only access.",
         "requiredHosts": "Required hosts"
       },
       "placeholders": {
@@ -610,7 +611,6 @@
     "settings": "Settings",
     "version": "Version",
     "theme": "Theme",
-    "liked": "Liked",
     "personal": {
       "name": "Personal",
       "options": {
@@ -633,18 +633,7 @@
     "albumList": "Albums",
     "playlists": "Playlists",
     "sharedPlaylists": "Shared Playlists",
-    "downloadSong": "Download Song",
-    "about": "About",
-    "downloadError": "Error downloading song"
-  },
-  "download": {
-    "youTube": "Download song from YouTube Music",
-    "youTubeSubtitle": "YouTube Music provides better metadata. Use YouTube only if the song cannot be found on YouTube Music.",
-    "youTubeLibrary": "Download Library",
-    "youTubeDefaultLibrary": "Default Library",
-    "youTubeButton": "Download",
-    "youTubeUrl": "YouTube Music URL",
-    "youTubeHelpText": "Enter a YouTube Music URL to download and add to your library"
+    "about": "About"
   },
   "player": {
     "playListsText": "Play Queue",
@@ -661,13 +650,6 @@
     "toggleMiniModeText": "Minimize",
     "destroyText": "Destroy",
     "downloadText": "Download",
-    "download": {
-      "url": "Song URL",
-      "library": "Library Folder",
-      "defaultLibrary": "Default Library",
-      "download": "Download",
-      "helpText": "Enter a YouTube, SoundCloud, or other supported URL to download the song. The downloaded file will be added to your music library and automatically scanned."
-    },
     "removeAudioListsText": "Delete audio lists",
     "clickToDeleteText": "Click to delete %{name}",
     "emptyLyricText": "No lyrics",
