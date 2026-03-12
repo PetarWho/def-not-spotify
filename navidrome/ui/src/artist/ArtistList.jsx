@@ -210,7 +210,7 @@ const ArtistList = (props) => {
         exporter={false}
         bulkActionButtons={false}
         filters={<ArtistFilter />}
-        filterDefaultValues={{ role: 'albumartist' }}
+        filterDefaultValues={{ role: 'maincredit' }}
         actions={<ArtistListActions />}
       >
         <ArtistListView {...props} />

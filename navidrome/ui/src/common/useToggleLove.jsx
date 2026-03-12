@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useDataProvider, useNotify } from 'react-admin'
+import { useDataProvider, useNotify, useRefresh } from 'react-admin'
 import subsonic from '../subsonic'
+import { isDateSet } from '../utils/validations'
 
 export const useToggleLove = (resource, record = {}) => {
   const [loading, setLoading] = useState(false)
   const notify = useNotify()
+  const refresh = useRefresh()
 
   const mountedRef = useRef(false)
   useEffect(() => {
@@ -32,6 +34,9 @@ export const useToggleLove = (resource, record = {}) => {
     }
 
     Promise.all(promises)
+      .then(() => {
+        refresh()
+      })
       .catch((e) => {
         // eslint-disable-next-line no-console
         console.log('Error encountered: ' + e)
@@ -41,10 +46,11 @@ export const useToggleLove = (resource, record = {}) => {
           setLoading(false)
         }
       })
-  }, [dataProvider, record.mediaFileId, record.id, record.playlistId, resource])
+  }, [dataProvider, record.mediaFileId, record.id, record.playlistId, resource, refresh])
 
   const toggleLove = () => {
-    const toggle = record.starred ? subsonic.unstar : subsonic.star
+    const isStarred = !!(isDateSet(record.starred) || record.starred === true)
+    const toggle = isStarred ? subsonic.unstar : subsonic.star
     const id = record.mediaFileId || record.id
 
     setLoading(true)

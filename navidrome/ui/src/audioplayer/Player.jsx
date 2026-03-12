@@ -204,7 +204,11 @@ const Player = () => {
   )
 
   const options = useMemo(() => {
-    const current = playerState.current || {}
+    const current = playerState.current?.trackId
+      ? playerState.current
+      : playerState.queue[
+          playerState.playIndex ?? playerState.savedPlayIndex
+        ] || {}
     return {
       ...defaultOptions,
       audioLists: playerState.queue.map((item) => item),
@@ -214,7 +218,11 @@ const Player = () => {
         (playerState.clear || playerState.playIndex === 0),
       clearPriorAudioLists: playerState.clear,
       extendsContent: (
-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+        <PlayerToolbar
+          id={current.trackId}
+          isRadio={current.isRadio}
+          record={current.song}
+        />
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,

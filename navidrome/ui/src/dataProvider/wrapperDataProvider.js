@@ -220,6 +220,18 @@ const wrapperDataProvider = {
       data: json,
     }))
   },
+  updateSongTags: (songId, tags) => {
+    return httpClient(`${REST_URL}/song/${songId}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify(tags),
+    }).then(({ json }) => ({ data: json }))
+  },
+  updateAlbumTags: (albumId, tags) => {
+    return httpClient(`${REST_URL}/album/${albumId}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify(tags),
+    }).then(({ json }) => ({ data: json }))
+  },
 }
 
 export default wrapperDataProvider

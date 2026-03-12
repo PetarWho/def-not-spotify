@@ -20,6 +20,18 @@ services:
     networks:
       - navidrome-network
 
+  navidrome-song-downloader:
+    build:
+      context: ./navidrome-song-downloader
+      dockerfile: Dockerfile
+    container_name: navidrome-song-downloader
+    volumes:
+      - ./music:/music
+      - ./navidrome-data:/data
+    restart: unless-stopped
+    networks:
+      - navidrome-network
+
   navidrome-tunnel:
     container_name: navidrome-tunnel
     image: cloudflare/cloudflared:latest
