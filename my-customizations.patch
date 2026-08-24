@@ -1,0 +1,2617 @@
+diff --git a/navidrome/Dockerfile b/navidrome/Dockerfile
+index b32c1df5..865bc2ed 100644
+--- a/navidrome/Dockerfile
++++ b/navidrome/Dockerfile
+@@ -52,7 +52,7 @@ WORKDIR /app
+ # Install node dependencies
+ COPY ui/package.json ui/package-lock.json ./
+ COPY ui/bin/ ./bin/
+-RUN npm ci
++RUN chmod +x bin/update-workbox.sh && npm ci
+ 
+ # Build bundle
+ COPY ui/ ./
+diff --git a/navidrome/cmd/wire_gen.go b/navidrome/cmd/wire_gen.go
+index d045c12e..e11c0ca5 100644
+--- a/navidrome/cmd/wire_gen.go
++++ b/navidrome/cmd/wire_gen.go
+@@ -80,7 +80,11 @@ func CreateNativeAPIRouter(ctx context.Context) *nativeapi.Router {
+ 	library := core.NewLibrary(dataStore, modelScanner, watcher, broker, manager)
+ 	user := core.NewUser(dataStore, manager)
+ 	maintenance := core.NewMaintenance(dataStore)
+-	router := nativeapi.New(dataStore, share, playlistsPlaylists, insights, library, user, maintenance, manager)
++	tagEditor, err := core.NewTagEditor()
++	if err != nil {
++		panic(err)
++	}
++	router := nativeapi.New(dataStore, share, playlistsPlaylists, insights, library, user, maintenance, manager, tagEditor, modelScanner)
+ 	return router
+ }
+ 
+diff --git a/navidrome/conf/configuration.go b/navidrome/conf/configuration.go
+index da549ce2..4dbd97c4 100644
+--- a/navidrome/conf/configuration.go
++++ b/navidrome/conf/configuration.go
+@@ -46,6 +46,10 @@ type configOptions struct {
+ 	EnableTranscodingCancellation   bool
+ 	EnableDownloads                 bool
+ 	EnableExternalServices          bool
++	DownloaderURL                   string
++	YTDLPCookiesFile                string
++	YTDLPUsername                   string
++	YTDLPPassword                   string
+ 	EnableM3UExternalAlbumArt       bool
+ 	EnableInsightsCollector         bool
+ 	EnableMediaFileCoverArt         bool
+@@ -640,6 +644,10 @@ func setViperDefaults() {
+ 	viper.SetDefault("playlistspath", "")
+ 	viper.SetDefault("smartPlaylistRefreshDelay", 5*time.Second)
+ 	viper.SetDefault("enabledownloads", true)
++	viper.SetDefault("downloaderurl", "http://navidrome-song-downloader:8000")
++	viper.SetDefault("ytdlpcookiesfile", "")
++	viper.SetDefault("ytdlpusername", "")
++	viper.SetDefault("ytdlppassword", "")
+ 	viper.SetDefault("enableexternalservices", true)
+ 	viper.SetDefault("enablem3uexternalalbumart", false)
+ 	viper.SetDefault("enablemediafilecoverart", true)
+diff --git a/navidrome/core/tag_editor.go b/navidrome/core/tag_editor.go
+new file mode 100644
+index 00000000..e3c0e0f0
+--- /dev/null
++++ b/navidrome/core/tag_editor.go
+@@ -0,0 +1,74 @@
++package core
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++
++	"github.com/navidrome/navidrome/log"
++)
++
++type TagEditor interface {
++	WriteTags(ctx context.Context, filePath string, tags map[string]string) error
++}
++
++type TagEditorImpl struct {
++	ffmpegPath string
++}
++
++func NewTagEditor() (*TagEditorImpl, error) {
++	ffmpegPath, err := exec.LookPath("ffmpeg")
++	if err != nil {
++		return nil, fmt.Errorf("ffmpeg not found: %w", err)
++	}
++	log.Info("Tag editor initialized", "ffmpeg", ffmpegPath)
++	return &TagEditorImpl{ffmpegPath: ffmpegPath}, nil
++}
++
++func (e *TagEditorImpl) WriteTags(ctx context.Context, filePath string, tags map[string]string) error {
++	ext := filepath.Ext(filePath)
++	base := filePath[:len(filePath)-len(ext)]
++	tempFile := base + ".tmp" + ext
++	
++	args := []string{"-i", filePath}
++	
++	tagMap := map[string]string{
++		"title":       "title",
++		"artist":      "artist",
++		"album":       "album",
++		"albumArtist": "album_artist",
++		"genre":       "genre",
++		"year":        "date",
++		"trackNumber": "track",
++		"discNumber":  "disc",
++		"comment":     "comment",
++	}
++	
++	for field, val := range tags {
++		if tagName, ok := tagMap[field]; ok {
++			args = append(args, "-metadata", fmt.Sprintf("%s=%s", tagName, val))
++		}
++	}
++	
++	args = append(args, "-codec", "copy", "-y", tempFile)
++	
++	log.Info(ctx, "Writing tags with ffmpeg", "file", filePath, "args", args)
++	
++	cmd := exec.CommandContext(ctx, e.ffmpegPath, args...)
++	output, err := cmd.CombinedOutput()
++	if err != nil {
++		log.Error(ctx, "Failed to write tags", "file", filePath, "output", string(output), err)
++		os.Remove(tempFile)
++		return fmt.Errorf("ffmpeg error: %w, output: %s", err, string(output))
++	}
++	
++	if err := os.Rename(tempFile, filePath); err != nil {
++		log.Error(ctx, "Failed to rename temp file", "tempFile", tempFile, "dest", filePath, err)
++		return fmt.Errorf("failed to rename temp file: %w", err)
++	}
++	
++	log.Info(ctx, "Successfully wrote tags", "file", filePath)
++	return nil
++}
+diff --git a/navidrome/core/wire_providers.go b/navidrome/core/wire_providers.go
+index 153df726..29569466 100644
+--- a/navidrome/core/wire_providers.go
++++ b/navidrome/core/wire_providers.go
+@@ -23,6 +23,7 @@ var Set = wire.NewSet(
+ 	NewLibrary,
+ 	NewUser,
+ 	NewMaintenance,
++	NewTagEditor,
+ 	stream.NewTranscodeDecider,
+ 	agents.GetAgents,
+ 	external.NewProvider,
+@@ -31,5 +32,6 @@ var Set = wire.NewSet(
+ 	scrobbler.GetPlayTracker,
+ 	playback.GetInstance,
+ 	metrics.GetInstance,
++	wire.Bind(new(TagEditor), new(*TagEditorImpl)),
+ 	lyrics.NewLyrics,
+ )
+diff --git a/navidrome/log/log.go b/navidrome/log/log.go
+index 7d294792..4052c1c5 100644
+--- a/navidrome/log/log.go
++++ b/navidrome/log/log.go
+@@ -34,6 +34,7 @@ var redacted = &Hook{
+ 		"(MetricsPath:[\\s]*\")[^\"]*",
+ 		"(DevAutoCreateAdminPassword:[\\s]*\")[^\"]*",
+ 		"(DevAutoLoginUsername:[\\s]*\")[^\"]*",
++		"(YTDLPPassword:[\\s]*\")[^\"]*",
+ 
+ 		// UI appConfig
+ 		"(subsonicToken:)[\\w]+(\\s)",
+diff --git a/navidrome/model/metadata/map_participants.go b/navidrome/model/metadata/map_participants.go
+index e8be6aaa..63eb7331 100644
+--- a/navidrome/model/metadata/map_participants.go
++++ b/navidrome/model/metadata/map_participants.go
+@@ -88,7 +88,6 @@ func (md Metadata) buildRoleMbidMaps() map[string][]string {
+ }
+ 
+ func (md Metadata) processPerformers(participants model.Participants, rolesMbzIdMap map[string][]string) {
+-	// roleIdx keeps track of the index of the MBZ ID for each role
+ 	roleIdx := make(map[string]int)
+ 	for role := range rolesMbzIdMap {
+ 		roleIdx[role] = 0
+@@ -96,7 +95,7 @@ func (md Metadata) processPerformers(participants model.Participants, rolesMbzId
+ 
+ 	titleCaser := cases.Title(language.Und)
+ 	for _, performer := range md.Pairs(model.TagPerformer) {
+-		name := performer.Value()
++		name := stripQuotes(performer.Value())
+ 		subRole := titleCaser.String(performer.Key())
+ 
+ 		artist := model.Artist{
+@@ -155,6 +154,7 @@ func (md Metadata) buildArtists(names, sorts, mbids []string) []model.Artist {
+ 	var artists []model.Artist
+ 	for i, name := range names {
+ 		id := md.artistID(name)
++		name = stripQuotes(name)
+ 		artist := model.Artist{
+ 			ID:              id,
+ 			Name:            name,
+@@ -171,6 +171,25 @@ func (md Metadata) buildArtists(names, sorts, mbids []string) []model.Artist {
+ 	return artists
+ }
+ 
++func stripQuotes(s string) string {
++	s = strings.TrimSpace(s)
++	if len(s) >= 2 {
++		firstRune := []rune(s)[0]
++		if isQuoteRune(firstRune) {
++			lastRune := []rune(s)[len([]rune(s))-1]
++			if isQuoteRune(lastRune) {
++				rs := []rune(s)
++				s = string(rs[1 : len(rs)-1])
++			}
++		}
++	}
++	return strings.TrimSpace(s)
++}
++
++func isQuoteRune(r rune) bool {
++	return r == '"' || r == '\u201c' || r == '\u201d' || r == '\'' || r == '\u2018' || r == '\u2019'
++}
++
+ // getRoleValues returns the values of a role tag, splitting them if necessary
+ func (md Metadata) getRoleValues(role model.TagName) []string {
+ 	values := md.Strings(role)
+diff --git a/navidrome/model/metadata/persistent_ids.go b/navidrome/model/metadata/persistent_ids.go
+index 70dfe053..0876fd16 100644
+--- a/navidrome/model/metadata/persistent_ids.go
++++ b/navidrome/model/metadata/persistent_ids.go
+@@ -1,13 +1,11 @@
+ package metadata
+ 
+ import (
+-	"cmp"
+ 	"fmt"
+ 	"path/filepath"
+ 	"strings"
+ 
+ 	"github.com/navidrome/navidrome/conf"
+-	"github.com/navidrome/navidrome/consts"
+ 	"github.com/navidrome/navidrome/log"
+ 	"github.com/navidrome/navidrome/model"
+ 	"github.com/navidrome/navidrome/model/id"
+@@ -97,15 +95,60 @@ func (md Metadata) artistID(name string) string {
+ }
+ 
+ func (md Metadata) mapTrackTitle() string {
+-	if title := md.String(model.TagTitle); title != "" {
+-		return title
++	title := md.String(model.TagTitle)
++	if title == "" {
++		return utils.BaseName(md.FilePath())
+ 	}
+-	return utils.BaseName(md.FilePath())
++
++	artist := md.String(model.TagTrackArtist)
++	if artist != "" {
++		prefix := artist + " - "
++		if strings.HasPrefix(title, prefix) {
++			title = strings.TrimPrefix(title, prefix)
++		}
++	}
++
++	suffixes := []string{
++		"(Official Music Video)",
++		"[Official Music Video]",
++		"(Official Audio)",
++		"[Official Audio]",
++		"(Official Lyric Video)",
++		"[Official Lyric Video]",
++		"(Lyric Video)",
++		"[Lyric Video]",
++		"(Lyrics)",
++		"[Lyrics]",
++		"(Audio)",
++		"[Audio]",
++		"(Visualizer)",
++		"[Visualizer]",
++		"(Music Video)",
++		"[Music Video]",
++	}
++	for _, suffix := range suffixes {
++		title = strings.TrimSuffix(title, suffix)
++	}
++
++	title = strings.TrimSpace(title)
++
++	if len(title) >= 2 {
++		rs := []rune(title)
++		if len(rs) >= 2 && isQuoteRune(rs[0]) {
++			if isQuoteRune(rs[len(rs)-1]) {
++				title = string(rs[1 : len(rs)-1])
++			}
++		}
++	}
++
++	title = strings.TrimSpace(title)
++
++	return title
+ }
+ 
+ func (md Metadata) mapAlbumName() string {
+-	return cmp.Or(
+-		md.String(model.TagAlbum),
+-		consts.UnknownAlbum,
+-	)
++	if album := md.String(model.TagAlbum); album != "" {
++		return album
++	}
++	return md.mapTrackTitle()
+ }
+diff --git a/navidrome/persistence/mediafile_repository.go b/navidrome/persistence/mediafile_repository.go
+index 264778ea..12dd8182 100644
+--- a/navidrome/persistence/mediafile_repository.go
++++ b/navidrome/persistence/mediafile_repository.go
+@@ -27,6 +27,8 @@ type dbMediaFile struct {
+ 	*model.MediaFile `structs:",flatten"`
+ 	Participants     string `structs:"-" json:"-"`
+ 	Tags             string `structs:"-" json:"-"`
++	LibraryPath      string `db:"library_path" structs:"-" json:"-"`
++	LibraryName      string `db:"library_name" structs:"-" json:"-"`
+ 	// These are necessary to map the correct names (rg_*) to the correct fields (RG*)
+ 	// without using `db` struct tags in the model.MediaFile struct
+ 	RgAlbumGain *float64 `structs:"-" json:"-"`
+@@ -36,6 +38,8 @@ type dbMediaFile struct {
+ }
+ 
+ func (m *dbMediaFile) PostScan() error {
++	m.MediaFile.LibraryPath = m.LibraryPath
++	m.MediaFile.LibraryName = m.LibraryName
+ 	m.RGTrackGain = m.RgTrackGain
+ 	m.RGTrackPeak = m.RgTrackPeak
+ 	m.RGAlbumGain = m.RgAlbumGain
+diff --git a/navidrome/resources/mappings.yaml b/navidrome/resources/mappings.yaml
+index d1da5c62..16e05e98 100644
+--- a/navidrome/resources/mappings.yaml
++++ b/navidrome/resources/mappings.yaml
+@@ -18,7 +18,7 @@
+ # Applies to single valued ARTIST and ALBUMARTIST tags. Won't be applied if the tag is multivalued or the multivalued
+ # versions are available (ARTISTS and ALBUMARTISTS)
+ artists:
+-  split: [" / ", " feat. ", " feat ", " ft. ", " ft ", "; "]
++  split: [" / ", " feat. ", " feat ", " ft. ", " ft ", "; ", ", ", ","]
+ # Applies to all remaining single-valued role tags (composer, lyricist, arranger...)
+ roles:
+   split: ["/", ";"]
+diff --git a/navidrome/server/nativeapi/edit_tags.go b/navidrome/server/nativeapi/edit_tags.go
+new file mode 100644
+index 00000000..70fb6c49
+--- /dev/null
++++ b/navidrome/server/nativeapi/edit_tags.go
+@@ -0,0 +1,258 @@
++package nativeapi
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/http"
++	"os"
++	"path/filepath"
++	"time"
++
++	"github.com/Masterminds/squirrel"
++	"github.com/go-chi/chi/v5"
++	"github.com/navidrome/navidrome/conf"
++	"github.com/navidrome/navidrome/log"
++	"github.com/navidrome/navidrome/model"
++	"github.com/navidrome/navidrome/utils/req"
++)
++
++type TagUpdateRequest struct {
++	Title       *string `json:"title,omitempty"`
++	Artist      *string `json:"artist,omitempty"`
++	Album       *string `json:"album,omitempty"`
++	Genre       *string `json:"genre,omitempty"`
++	Year        *int    `json:"year,omitempty"`
++	TrackNumber *int    `json:"trackNumber,omitempty"`
++	DiscNumber  *int    `json:"discNumber,omitempty"`
++	Comment     *string `json:"comment,omitempty"`
++}
++
++type AlbumTagUpdateRequest struct {
++	Name        *string `json:"name,omitempty"`
++	Artist      *string `json:"artist,omitempty"`
++	AlbumArtist *string `json:"albumArtist,omitempty"`
++	Genre       *string `json:"genre,omitempty"`
++	Year        *int    `json:"year,omitempty"`
++	Comment     *string `json:"comment,omitempty"`
++}
++
++func updateSongTags(ds model.DataStore, tagEditor TagEditor, scanner model.Scanner) http.HandlerFunc {
++	return func(w http.ResponseWriter, r *http.Request) {
++		ctx := r.Context()
++		id, err := req.Params(r).String(":id")
++		if err != nil {
++			id = chi.URLParam(r, "id")
++		}
++
++		if id == "" {
++			http.Error(w, "missing parameter: 'id'", http.StatusBadRequest)
++			return
++		}
++
++		var updateReq TagUpdateRequest
++		if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
++			http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
++			return
++		}
++
++		file, err := ds.MediaFile(ctx).Get(id)
++		if err != nil {
++			if errors.Is(err, model.ErrNotFound) {
++				http.Error(w, "Song not found", http.StatusNotFound)
++				return
++			}
++			log.Error(ctx, "Error getting media file", "id", id, err)
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
++
++		if file.Missing {
++			http.Error(w, "File is missing", http.StatusNotFound)
++			return
++		}
++
++		tags := make(map[string]string)
++		if updateReq.Title != nil {
++			tags["title"] = *updateReq.Title
++		}
++		if updateReq.Artist != nil {
++			tags["artist"] = *updateReq.Artist
++		}
++		if updateReq.Album != nil {
++			tags["album"] = *updateReq.Album
++		}
++		if updateReq.Genre != nil {
++			tags["genre"] = *updateReq.Genre
++		}
++		if updateReq.Year != nil {
++			tags["year"] = fmt.Sprintf("%d", *updateReq.Year)
++		}
++		if updateReq.TrackNumber != nil {
++			tags["trackNumber"] = fmt.Sprintf("%d", *updateReq.TrackNumber)
++		}
++		if updateReq.DiscNumber != nil {
++			tags["discNumber"] = fmt.Sprintf("%d", *updateReq.DiscNumber)
++		}
++		if updateReq.Comment != nil {
++			tags["comment"] = *updateReq.Comment
++		}
++
++		if len(tags) == 0 {
++			http.Error(w, "No tags to update", http.StatusBadRequest)
++			return
++		}
++
++		absolutePath := file.AbsolutePath()
++		if _, err := os.Stat(absolutePath); os.IsNotExist(err) {
++			log.Debug(ctx, "File not found at AbsolutePath, trying MusicFolder fallback", "path", absolutePath)
++			absolutePath = filepath.Join(conf.Server.MusicFolder, file.Path)
++		}
++
++		if err := tagEditor.WriteTags(ctx, absolutePath, tags); err != nil {
++			log.Error(ctx, "Error writing tags", "file", absolutePath, err)
++			http.Error(w, "Failed to write tags: "+err.Error(), http.StatusInternalServerError)
++			return
++		}
++
++		if err := touchFile(absolutePath); err != nil {
++			log.Warn(ctx, "Could not update file modification time", "file", absolutePath, err)
++		}
++
++		// Trigger a quick rescan to update the database with new metadata
++		if scanner != nil {
++			go func() {
++				log.Info(context.Background(), "Triggering quick rescan after song tag update", "file", absolutePath)
++				_, err := scanner.ScanAll(context.Background(), false)
++				if err != nil {
++					log.Error(context.Background(), "Failed to trigger rescan after song update", "error", err)
++				}
++			}()
++		}
++
++		response := map[string]interface{}{
++			"id":      id,
++			"success": true,
++			"message": "Tags updated successfully",
++		}
++
++		w.Header().Set("Content-Type", "application/json")
++		if err := json.NewEncoder(w).Encode(response); err != nil {
++			log.Error(ctx, "Error encoding response", err)
++		}
++	}
++}
++
++func touchFile(path string) error {
++	return os.Chtimes(path, time.Now(), time.Now())
++}
++
++func updateAlbumTags(ds model.DataStore, tagEditor TagEditor, scanner model.Scanner) http.HandlerFunc {
++	return func(w http.ResponseWriter, r *http.Request) {
++		ctx := r.Context()
++		id, err := req.Params(r).String(":id")
++		if err != nil {
++			id = chi.URLParam(r, "id")
++		}
++
++		if id == "" {
++			http.Error(w, "missing parameter: 'id'", http.StatusBadRequest)
++			return
++		}
++
++		var updateReq AlbumTagUpdateRequest
++		if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
++			http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
++			return
++		}
++
++		songs, err := ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album_id": id}})
++		if err != nil {
++			if errors.Is(err, model.ErrNotFound) {
++				http.Error(w, "Album not found", http.StatusNotFound)
++				return
++			}
++			log.Error(ctx, "Error getting album songs", "id", id, err)
++			http.Error(w, err.Error(), http.StatusInternalServerError)
++			return
++		}
++
++		if len(songs) == 0 {
++			http.Error(w, "Album has no songs", http.StatusNotFound)
++			return
++		}
++
++		tags := make(map[string]string)
++		if updateReq.Name != nil {
++			tags["album"] = *updateReq.Name
++		}
++		if updateReq.Artist != nil {
++			tags["artist"] = *updateReq.Artist
++		}
++		if updateReq.AlbumArtist != nil {
++			tags["albumArtist"] = *updateReq.AlbumArtist
++		}
++		if updateReq.Genre != nil {
++			tags["genre"] = *updateReq.Genre
++		}
++		if updateReq.Year != nil {
++			tags["year"] = fmt.Sprintf("%d", *updateReq.Year)
++		}
++		if updateReq.Comment != nil {
++			tags["comment"] = *updateReq.Comment
++		}
++
++		if len(tags) == 0 {
++			http.Error(w, "No tags to update", http.StatusBadRequest)
++			return
++		}
++
++		successCount := 0
++		errorCount := 0
++		for _, song := range songs {
++			if song.Missing {
++				continue
++			}
++			absolutePath := song.AbsolutePath()
++			if _, err := os.Stat(absolutePath); os.IsNotExist(err) {
++				log.Debug(ctx, "File not found at AbsolutePath, trying MusicFolder fallback", "path", absolutePath)
++				absolutePath = filepath.Join(conf.Server.MusicFolder, song.Path)
++			}
++
++			if err := tagEditor.WriteTags(ctx, absolutePath, tags); err != nil {
++				log.Error(ctx, "Error writing tags for song", "file", absolutePath, err)
++				errorCount++
++				continue
++			}
++			if err := touchFile(absolutePath); err != nil {
++				log.Warn(ctx, "Could not update file modification time", "file", absolutePath, err)
++			}
++			successCount++
++		}
++
++		// Trigger a quick rescan to update the database with new metadata
++		if scanner != nil && successCount > 0 {
++			go func() {
++				log.Info(context.Background(), "Triggering quick rescan after album tag update", "albumId", id)
++				_, err := scanner.ScanAll(context.Background(), false)
++				if err != nil {
++					log.Error(context.Background(), "Failed to trigger rescan after album update", "error", err)
++				}
++			}()
++		}
++
++		response := map[string]interface{}{
++			"id":           id,
++			"success":      true,
++			"message":      fmt.Sprintf("Updated %d songs, %d errors", successCount, errorCount),
++			"successCount": successCount,
++			"errorCount":   errorCount,
++		}
++
++		w.Header().Set("Content-Type", "application/json")
++		if err := json.NewEncoder(w).Encode(response); err != nil {
++			log.Error(ctx, "Error encoding response", err)
++		}
++	}
++}
+diff --git a/navidrome/server/nativeapi/native_api.go b/navidrome/server/nativeapi/native_api.go
+index 3191991e..951eda98 100644
+--- a/navidrome/server/nativeapi/native_api.go
++++ b/navidrome/server/nativeapi/native_api.go
+@@ -34,6 +34,10 @@ type PluginManager interface {
+ 	UnloadDisabledPlugins(ctx context.Context)
+ }
+ 
++type TagEditor interface {
++	WriteTags(ctx context.Context, filePath string, tags map[string]string) error
++}
++
+ type Router struct {
+ 	http.Handler
+ 	ds            model.DataStore
+@@ -44,10 +48,12 @@ type Router struct {
+ 	users         core.User
+ 	maintenance   core.Maintenance
+ 	pluginManager PluginManager
++	tagEditor     TagEditor
++	scanner       model.Scanner
+ }
+ 
+-func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager) *Router {
+-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager}
++func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, tagEditor TagEditor, scanner model.Scanner) *Router {
++	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, tagEditor: tagEditor, scanner: scanner}
+ 	r.Handler = r.routes()
+ 	return r
+ }
+@@ -79,6 +85,8 @@ func (api *Router) routes() http.Handler {
+ 		api.addPlaylistRoute(r)
+ 		api.addPlaylistTrackRoute(r)
+ 		api.addSongPlaylistsRoute(r)
++		api.addSongTagsRoute(r)
++		api.addAlbumTagsRoute(r)
+ 		api.addQueueRoute(r)
+ 		api.addMissingFilesRoute(r)
+ 		api.addKeepAliveRoute(r)
+@@ -180,6 +188,14 @@ func (api *Router) addSongPlaylistsRoute(r chi.Router) {
+ 	})
+ }
+ 
++func (api *Router) addSongTagsRoute(r chi.Router) {
++	r.With(server.URLParamsMiddleware).Put("/song/{id}/tags", updateSongTags(api.ds, api.tagEditor, api.scanner))
++}
++
++func (api *Router) addAlbumTagsRoute(r chi.Router) {
++	r.With(server.URLParamsMiddleware).Put("/album/{id}/tags", updateAlbumTags(api.ds, api.tagEditor, api.scanner))
++}
++
+ func (api *Router) addQueueRoute(r chi.Router) {
+ 	r.Route("/queue", func(r chi.Router) {
+ 		r.Get("/", getQueue(api.ds))
+diff --git a/navidrome/server/subsonic/api.go b/navidrome/server/subsonic/api.go
+index e91c02aa..30d5407e 100644
+--- a/navidrome/server/subsonic/api.go
++++ b/navidrome/server/subsonic/api.go
+@@ -171,6 +171,10 @@ func (api *Router) routes() http.Handler {
+ 			r.Use(getPlayer(api.players))
+ 			h(r, "getScanStatus", api.GetScanStatus)
+ 			h(r, "startScan", api.StartScan)
++			h(r, "downloadSong", api.downloadSong)
++			h(r, "deleteSong", api.deleteSong)
++			h(r, "deleteAlbum", api.deleteAlbum)
++			h(r, "getLibraries", api.getLibraries)
+ 		})
+ 		r.Group(func(r chi.Router) {
+ 			r.Use(getPlayer(api.players))
+diff --git a/navidrome/server/subsonic/download.go b/navidrome/server/subsonic/download.go
+new file mode 100644
+index 00000000..93d5a89a
+--- /dev/null
++++ b/navidrome/server/subsonic/download.go
+@@ -0,0 +1,330 @@
++package subsonic
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++
++	"github.com/Masterminds/squirrel"
++	"github.com/navidrome/navidrome/conf"
++	"github.com/navidrome/navidrome/log"
++	"github.com/navidrome/navidrome/model"
++	"github.com/navidrome/navidrome/server/subsonic/responses"
++)
++
++type DownloadRequest struct {
++	URL     string `json:"url"`
++	Library string `json:"library"`
++}
++
++type DeleteRequest struct {
++	SongID string `json:"songId"`
++}
++
++type DeleteAlbumRequest struct {
++	AlbumID string `json:"albumId"`
++}
++
++func (api *Router) downloadSong(r *http.Request) (*responses.Subsonic, error) {
++	var downloadReq DownloadRequest
++	
++	if err := json.NewDecoder(r.Body).Decode(&downloadReq); err != nil {
++		log.Error("Failed to decode download request", "error", err)
++		return nil, newError(responses.ErrorGeneric, "Invalid request format")
++	}
++
++	if downloadReq.URL == "" {
++		return nil, newError(responses.ErrorGeneric, "URL is required")
++	}
++
++	musicFolder := conf.Server.MusicFolder
++	if downloadReq.Library != "" {
++		// If a specific library is requested, use it as a subdirectory
++		musicFolder = filepath.Join(musicFolder, downloadReq.Library)
++	}
++
++	// Ensure the directory exists
++	if err := os.MkdirAll(musicFolder, 0755); err != nil {
++		log.Error("Failed to create music directory", "directory", musicFolder, "error", err)
++		return nil, newError(responses.ErrorGeneric, "Failed to create music directory")
++	}
++
++	// Download the song using yt-dlp
++	filename, err := api.downloadWithYTDLP(downloadReq.URL, musicFolder)
++	if err != nil {
++		log.Error("Failed to download song", "url", downloadReq.URL, "error", err)
++		return nil, newError(responses.ErrorGeneric, fmt.Sprintf("Download failed: %v", err))
++	}
++
++	// Trigger a library scan
++	if api.scanner != nil {
++		go func() {
++			_, err := api.scanner.ScanAll(context.Background(), false)
++			if err != nil {
++				log.Warn("Failed to trigger library scan after download", "error", err)
++			}
++		}()
++	}
++
++	response := responses.Subsonic{
++		Status: "ok",
++		DownloadResponse: &responses.DownloadResponse{
++			Success: true,
++			Message: "Song downloaded successfully",
++			File:    filename,
++		},
++	}
++
++	return &response, nil
++}
++
++func (api *Router) downloadWithYTDLP(url, outputDir string) (string, error) {
++	requestBody, err := json.Marshal(map[string]string{
++		"url":          url,
++		"output_dir":   outputDir,
++		"cookies_file": conf.Server.YTDLPCookiesFile,
++		"username":     conf.Server.YTDLPUsername,
++		"password":     conf.Server.YTDLPPassword,
++	})
++	if err != nil {
++		return "", fmt.Errorf("failed to marshal download request: %v", err)
++	}
++
++	downloaderURL := fmt.Sprintf("%s/download", conf.Server.DownloaderURL)
++	resp, err := http.Post(downloaderURL, "application/json", bytes.NewBuffer(requestBody))
++	if err != nil {
++		return "", fmt.Errorf("failed to call downloader service: %v", err)
++	}
++	defer resp.Body.Close()
++
++	if resp.StatusCode != http.StatusOK {
++		body, _ := io.ReadAll(resp.Body)
++		return "", fmt.Errorf("downloader service returned error (%d): %s", resp.StatusCode, string(body))
++	}
++
++	var result struct {
++		Success bool   `json:"success"`
++		Message string `json:"message"`
++		File    string `json:"file"`
++	}
++
++	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
++		return "", fmt.Errorf("failed to decode downloader response: %v", err)
++	}
++
++	if !result.Success {
++		return "", fmt.Errorf("downloader failed: %s", result.Message)
++	}
++
++	return result.File, nil
++}
++
++func (api *Router) deleteSong(r *http.Request) (*responses.Subsonic, error) {
++	var deleteReq DeleteRequest
++	
++	if err := json.NewDecoder(r.Body).Decode(&deleteReq); err != nil {
++		log.Error("Failed to decode delete request", "error", err)
++		return nil, newError(responses.ErrorGeneric, "Invalid request format")
++	}
++
++	if deleteReq.SongID == "" {
++		return nil, newError(responses.ErrorGeneric, "Song ID is required")
++	}
++
++	// Get the song from the database to find its file path
++	song, err := api.ds.MediaFile(r.Context()).Get(deleteReq.SongID)
++	if err != nil {
++		log.Error("Failed to get song from database", "songId", deleteReq.SongID, "error", err)
++		return nil, newError(responses.ErrorDataNotFound, "Song not found")
++	}
++
++	// Delete the file from disk
++	if song.Path != "" {
++		fullPath := filepath.Join(conf.Server.MusicFolder, song.Path)
++		if err := os.Remove(fullPath); err != nil {
++			log.Error("Failed to delete song file", "file", fullPath, "error", err)
++			return nil, newError(responses.ErrorGeneric, fmt.Sprintf("Failed to delete file: %v", err))
++		}
++		log.Info("Deleted song file", "file", fullPath)
++	}
++
++	// Delete the song from the database
++	if err := api.ds.MediaFile(r.Context()).Delete(deleteReq.SongID); err != nil {
++		log.Error("Failed to delete song from database", "songId", deleteReq.SongID, "error", err)
++		return nil, newError(responses.ErrorGeneric, fmt.Sprintf("Failed to delete from database: %v", err))
++	}
++
++	log.Info("Deleted song from database", "songId", deleteReq.SongID, "title", song.Title)
++	
++	// Trigger a library scan to clean up metadata and empty albums
++	if api.scanner != nil {
++		go func() {
++			log.Info(context.Background(), "Triggering quick rescan after song deletion", "songId", deleteReq.SongID)
++			_, err := api.scanner.ScanAll(context.Background(), false)
++			if err != nil {
++				log.Warn("Failed to trigger library scan after song deletion", "error", err)
++			}
++		}()
++	}
++
++	// Check if album is now empty and delete it if so
++	if song.AlbumID != "" {
++		// Count remaining songs in the album
++		albumSongs, err := api.ds.MediaFile(r.Context()).GetAll(model.QueryOptions{
++			Filters: squirrel.Eq{"album_id": song.AlbumID},
++		})
++		if err != nil {
++			log.Warn("Failed to check album songs", "albumId", song.AlbumID, "error", err)
++		} else if len(albumSongs) == 0 {
++			// Album is empty, log and let the system handle cleanup
++			log.Info("Album is now empty - will be cleaned up by system", "albumId", song.AlbumID, "name", song.Album)
++			
++			// Try to get album info and trigger a rescan to clean up empty albums
++			if album, err := api.ds.Album(r.Context()).Get(song.AlbumID); err == nil {
++				log.Info("Triggering cleanup for empty album", "albumId", song.AlbumID, "name", album.Name)
++				// The system will automatically clean up empty albums during next scan
++				// For immediate cleanup, we could trigger a scan here
++			}
++		}
++	}
++
++	response := responses.Subsonic{
++		Status: "ok",
++		DeleteResponse: &responses.DeleteResponse{
++			Success: true,
++			Message: "Song deleted successfully",
++		},
++	}
++
++	return &response, nil
++}
++
++func (api *Router) getLibraries(r *http.Request) (*responses.Subsonic, error) {
++	libraries := getUserAccessibleLibraries(r.Context())
++
++	libraryList := make([]responses.Library, 0, len(libraries))
++	
++	if len(libraries) == 0 {
++		// No libraries found, return default
++		libraryList = append(libraryList, responses.Library{
++			ID:   "default",
++			Name: "Music Library",
++		})
++	} else {
++		for _, lib := range libraries {
++			libraryList = append(libraryList, responses.Library{
++				ID:   fmt.Sprintf("%d", lib.ID),
++				Name: lib.Name,
++			})
++		}
++	}
++
++	response := responses.Subsonic{
++		Status: "ok",
++		LibraryResponse: &responses.LibraryResponse{
++			Success:   true,
++			Message:   "Libraries retrieved successfully",
++			Libraries: libraryList,
++		},
++	}
++
++	return &response, nil
++}
++
++func (api *Router) deleteAlbum(r *http.Request) (*responses.Subsonic, error) {
++	var deleteAlbumReq DeleteAlbumRequest
++	
++	if err := json.NewDecoder(r.Body).Decode(&deleteAlbumReq); err != nil {
++		log.Error("Failed to decode delete album request", "error", err)
++		return nil, newError(responses.ErrorGeneric, "Invalid request format")
++	}
++
++	if deleteAlbumReq.AlbumID == "" {
++		return nil, newError(responses.ErrorGeneric, "Album ID is required")
++	}
++
++	// Get all songs in the album
++	albumSongs, err := api.ds.MediaFile(r.Context()).GetAll(model.QueryOptions{
++		Filters: squirrel.Eq{"album_id": deleteAlbumReq.AlbumID},
++	})
++	if err != nil {
++		log.Error("Failed to get album songs", "albumId", deleteAlbumReq.AlbumID, "error", err)
++		return nil, newError(responses.ErrorGeneric, "Failed to get album songs")
++	}
++
++	// Get album info for logging
++	album, err := api.ds.Album(r.Context()).Get(deleteAlbumReq.AlbumID)
++	if err != nil {
++		log.Error("Failed to get album info", "albumId", deleteAlbumReq.AlbumID, "error", err)
++		return nil, newError(responses.ErrorDataNotFound, "Album not found")
++	}
++
++	// Delete all songs in the album
++	for _, song := range albumSongs {
++		// Delete the file from disk if it exists
++		if song.Path != "" {
++			fullPath := filepath.Join(conf.Server.MusicFolder, song.Path)
++			if err := os.Remove(fullPath); err != nil {
++				log.Warn("Failed to delete song file", "file", fullPath, "error", err)
++			} else {
++				log.Info("Deleted song file", "file", fullPath)
++			}
++		}
++		
++		// Delete the song from database
++		if err := api.ds.MediaFile(r.Context()).Delete(song.ID); err != nil {
++			log.Error("Failed to delete song from database", "songId", song.ID, "error", err)
++			return nil, newError(responses.ErrorGeneric, fmt.Sprintf("Failed to delete song: %v", err))
++		}
++	}
++	
++	// Delete the album folder if it's empty
++	if len(album.FolderIDs) > 0 {
++		// Get the first folder ID to construct the album path
++		albumPath := filepath.Join(conf.Server.MusicFolder, album.FolderIDs[0])
++		if err := os.RemoveAll(albumPath); err != nil {
++			log.Warn("Failed to delete album folder", "folder", albumPath, "error", err)
++		} else {
++			log.Info("Deleted album folder", "folder", albumPath)
++		}
++		
++		// Note: Album will be automatically removed from database by scanner
++		// when it detects that folder no longer exists
++		log.Info("Album folder removed - will be cleaned up by scanner", "albumId", deleteAlbumReq.AlbumID, "name", album.Name)
++		
++		// Trigger garbage collection to clean up empty albums immediately
++		if err := api.ds.GC(r.Context()); err != nil {
++			log.Warn("Failed to trigger GC after album deletion", "albumId", deleteAlbumReq.AlbumID, "error", err)
++		} else {
++			log.Info("Triggered GC after album deletion", "albumId", deleteAlbumReq.AlbumID)
++		}
++	}
++
++	log.Info("Deleted album and all its songs", "albumId", deleteAlbumReq.AlbumID, "name", album.Name, "songCount", len(albumSongs))
++
++	// Trigger a library scan to clean up metadata
++	if api.scanner != nil {
++		go func() {
++			log.Info(context.Background(), "Triggering quick rescan after album deletion", "albumId", deleteAlbumReq.AlbumID)
++			_, err := api.scanner.ScanAll(context.Background(), false)
++			if err != nil {
++				log.Warn("Failed to trigger library scan after album deletion", "error", err)
++			}
++		}()
++	}
++
++	response := responses.Subsonic{
++		Status: "ok",
++		DeleteResponse: &responses.DeleteResponse{
++			Success: true,
++			Message: fmt.Sprintf("Album '%s' and %d songs deleted successfully", album.Name, len(albumSongs)),
++		},
++	}
++
++	return &response, nil
++}
+\ No newline at end of file
+diff --git a/navidrome/server/subsonic/responses/download.go b/navidrome/server/subsonic/responses/download.go
+new file mode 100644
+index 00000000..7f5e0cae
+--- /dev/null
++++ b/navidrome/server/subsonic/responses/download.go
+@@ -0,0 +1,23 @@
++package responses
++
++type DownloadResponse struct {
++	Success bool   `xml:"success" json:"success"`
++	Message string `xml:"message" json:"message"`
++	File    string `xml:"file,omitempty" json:"file,omitempty"`
++}
++
++type DeleteResponse struct {
++	Success bool   `xml:"success" json:"success"`
++	Message string `xml:"message" json:"message"`
++}
++
++type LibraryResponse struct {
++	Success bool      `xml:"success" json:"success"`
++	Message string    `xml:"message" json:"message"`
++	Libraries []Library `xml:"libraries,omitempty" json:"libraries,omitempty"`
++}
++
++type Library struct {
++	ID   string `xml:"id" json:"id"`
++	Name string `xml:"name" json:"name"`
++}
+diff --git a/navidrome/server/subsonic/responses/responses.go b/navidrome/server/subsonic/responses/responses.go
+index be59e585..78bc78d2 100644
+--- a/navidrome/server/subsonic/responses/responses.go
++++ b/navidrome/server/subsonic/responses/responses.go
+@@ -48,6 +48,9 @@ type Subsonic struct {
+ 
+ 	PlayQueue  *PlayQueue  `xml:"playQueue,omitempty"                                     json:"playQueue,omitempty"`
+ 	Shares     *Shares     `xml:"shares,omitempty"                                     json:"shares,omitempty"`
++	DownloadResponse *DownloadResponse `xml:"downloadResponse,omitempty" json:"downloadResponse,omitempty"`
++	DeleteResponse   *DeleteResponse   `xml:"deleteResponse,omitempty"   json:"deleteResponse,omitempty"`
++	LibraryResponse *LibraryResponse `xml:"libraryResponse,omitempty" json:"libraryResponse,omitempty"`
+ 	Bookmarks  *Bookmarks  `xml:"bookmarks,omitempty"                                     json:"bookmarks,omitempty"`
+ 	ScanStatus *ScanStatus `xml:"scanStatus,omitempty"                                    json:"scanStatus,omitempty"`
+ 	Lyrics     *Lyrics     `xml:"lyrics,omitempty"                                        json:"lyrics,omitempty"`
+diff --git a/navidrome/ui/src/album/AlbumActions.jsx b/navidrome/ui/src/album/AlbumActions.jsx
+index 96cfab09..fa803443 100644
+--- a/navidrome/ui/src/album/AlbumActions.jsx
++++ b/navidrome/ui/src/album/AlbumActions.jsx
+@@ -7,6 +7,8 @@ import {
+   TopToolbar,
+   useRecordContext,
+   useTranslate,
++  useNotify,
++  usePermissions,
+ } from 'react-admin'
+ import { useMediaQuery, makeStyles } from '@material-ui/core'
+ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
+@@ -15,6 +17,7 @@ import CloudDownloadOutlinedIcon from '@material-ui/icons/CloudDownloadOutlined'
+ import { RiPlayListAddFill, RiPlayList2Fill } from 'react-icons/ri'
+ import PlaylistAddIcon from '@material-ui/icons/PlaylistAdd'
+ import ShareIcon from '@material-ui/icons/Share'
++import DeleteIcon from '@material-ui/icons/Delete'
+ import {
+   playNext,
+   addTracks,
+@@ -42,6 +45,38 @@ const AlbumButton = ({ children, ...rest }) => {
+   )
+ }
+ 
++const deleteAlbum = async (albumId, songCount, dispatch, notify) => {
++  try {
++    const username = localStorage.getItem('username') || 'admin'
++    const token = localStorage.getItem('subsonic-token') || ''
++    const salt = localStorage.getItem('subsonic-salt') || ''
++    
++    const response = await fetch(`/rest/deleteAlbum?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++      },
++      body: JSON.stringify({
++        albumId: albumId,
++      }),
++    })
++
++    const data = await response.json()
++    const subsonicResponse = data['subsonic-response'] || data
++    
++    if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
++      notify('Album deleted successfully', 'success')
++      // Trigger a refresh of the current view
++      window.location.reload()
++    } else {
++      const errorMsg = subsonicResponse.deleteResponse?.message || subsonicResponse.error?.message || 'Delete failed'
++      notify(errorMsg, 'error')
++    }
++  } catch (err) {
++    notify('Network error: ' + err.message, 'error')
++  }
++}
++
+ const AlbumActions = ({
+   className,
+   ids,
+@@ -52,6 +87,8 @@ const AlbumActions = ({
+ }) => {
+   const dispatch = useDispatch()
+   const translate = useTranslate()
++  const notify = useNotify()
++  const { permissions } = usePermissions()
+   const classes = useStyles()
+   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
+   const isNotSmall = useMediaQuery((theme) => theme.breakpoints.up('sm'))
+@@ -85,6 +122,18 @@ const AlbumActions = ({
+     dispatch(openDownloadMenu(record, DOWNLOAD_MENU_ALBUM))
+   }, [dispatch, record])
+ 
++  const handleDeleteAlbum = React.useCallback(() => {
++    const songCount = ids.length
++    const confirmMessage = translate('resources.album.actions.deleteConfirm', {
++      name: record.name,
++      count: songCount
++    })
++    
++    if (window.confirm(confirmMessage)) {
++      deleteAlbum(record.id, songCount, dispatch, notify)
++    }
++  }, [dispatch, record, ids, notify])
++
+   return (
+     <TopToolbar className={className} {...sanitizeListRestProps(rest)}>
+       <div className={classes.toolbar}>
+@@ -138,6 +187,14 @@ const AlbumActions = ({
+               <CloudDownloadOutlinedIcon />
+             </AlbumButton>
+           )}
++          {permissions === 'admin' && (
++            <AlbumButton
++              onClick={handleDeleteAlbum}
++              label={translate('resources.album.actions.delete')}
++            >
++              <DeleteIcon />
++            </AlbumButton>
++          )}
+         </div>
+         <div>{isNotSmall && <ToggleFieldsMenu resource="albumSong" />}</div>
+       </div>
+diff --git a/navidrome/ui/src/album/AlbumDetails.jsx b/navidrome/ui/src/album/AlbumDetails.jsx
+index bd6a4152..47d02b21 100644
+--- a/navidrome/ui/src/album/AlbumDetails.jsx
++++ b/navidrome/ui/src/album/AlbumDetails.jsx
+@@ -228,10 +228,6 @@ const AlbumDetails = (props) => {
+ 
+   let notes = albumInfo?.notes || record.notes
+ 
+-  if (notes) {
+-    notes += '..'
+-  }
+-
+   useEffect(() => {
+     subsonic
+       .getAlbumInfo(record.id)
+diff --git a/navidrome/ui/src/album/AlbumEdit.jsx b/navidrome/ui/src/album/AlbumEdit.jsx
+new file mode 100644
+index 00000000..bc17967c
+--- /dev/null
++++ b/navidrome/ui/src/album/AlbumEdit.jsx
+@@ -0,0 +1,123 @@
++import React, { useCallback } from 'react'
++import { makeStyles } from '@material-ui/core/styles'
++import {
++  TextInput,
++  NumberInput,
++  Edit,
++  required,
++  SimpleForm,
++  useTranslate,
++  Toolbar,
++  SaveButton,
++  useNotify,
++  useRedirect,
++  useRefresh,
++  Notification,
++  useDataProvider,
++  useRecordContext,
++} from 'react-admin'
++import { Title } from '../common'
++
++const useStyles = makeStyles({
++  toolbar: {
++    display: 'flex',
++    justifyContent: 'space-between',
++  },
++})
++
++const AlbumTitle = ({ record }) => {
++  const translate = useTranslate()
++  const resourceName = translate('resources.album.name', { smart_count: 1 })
++  return <Title subTitle={`${resourceName} ${record ? record.name : ''}`} />
++}
++
++const AlbumToolbar = (props) => (
++  <Toolbar {...props} classes={useStyles()}>
++    <SaveButton disabled={props.pristine} />
++  </Toolbar>
++)
++
++const AlbumEdit = (props) => {
++  const translate = useTranslate()
++  const dataProvider = useDataProvider()
++  const notify = useNotify()
++  const redirect = useRedirect()
++  const refresh = useRefresh()
++  const record = useRecordContext()
++
++  const save = useCallback(
++    async (values) => {
++      try {
++        const albumId = record?.id || values.id
++        if (!albumId) {
++          notify('Cannot save: missing album ID', 'error')
++          return
++        }
++        
++        const tags = {}
++        if (values.name !== undefined) tags.name = values.name
++        if (values.albumArtist !== undefined) tags.albumArtist = values.albumArtist
++        if (values.genre !== undefined) tags.genre = values.genre
++        if (values.maxYear !== undefined) tags.year = values.maxYear
++        if (values.comment !== undefined) tags.comment = values.comment
++
++        const result = await dataProvider.updateAlbumTags(albumId, tags)
++        
++        if (result.data.errorCount > 0) {
++          notify(`Updated ${result.data.successCount} songs, ${result.data.errorCount} errors`, 'warning')
++        } else {
++          notify(`Album metadata updated successfully (${result.data.successCount} songs)`)
++        }
++        refresh()
++        redirect('/album')
++      } catch (error) {
++        console.error('Error in album edit:', error)
++        notify('Failed to update album metadata: ' + (error.message || 'Unknown error'), 'warning')
++      }
++    },
++    [dataProvider, notify, redirect, refresh, record],
++  )
++
++  return (
++    <>
++      <Edit title={<AlbumTitle />} undoable={false} {...props}>
++        <SimpleForm
++          variant={'outlined'}
++          toolbar={<AlbumToolbar />}
++          save={save}
++        >
++          <TextInput
++            source="name"
++            label={translate('resources.album.fields.name')}
++            validate={[required()]}
++            fullWidth
++          />
++          <TextInput
++            source="albumArtist"
++            label={translate('resources.album.fields.albumArtist')}
++            fullWidth
++          />
++          <TextInput
++            source="genre"
++            label={translate('resources.album.fields.genre')}
++            fullWidth
++          />
++          <NumberInput
++            source="maxYear"
++            label={translate('resources.album.fields.year')}
++          />
++          <TextInput
++            source="comment"
++            label={translate('resources.album.fields.comment')}
++            multiline
++            rows={4}
++            fullWidth
++          />
++        </SimpleForm>
++      </Edit>
++      <Notification />
++    </>
++  )
++}
++
++export default AlbumEdit
+diff --git a/navidrome/ui/src/album/AlbumEditWrapper.jsx b/navidrome/ui/src/album/AlbumEditWrapper.jsx
+new file mode 100644
+index 00000000..0b4dcc45
+--- /dev/null
++++ b/navidrome/ui/src/album/AlbumEditWrapper.jsx
+@@ -0,0 +1,19 @@
++import React from 'react'
++import AlbumEdit from './AlbumEdit'
++
++const AlbumEditWrapper = (props) => {
++  // Extract the ID from the route params
++  const id = props.match.params.id
++  
++  // Provide all required React Admin props
++  const editProps = {
++    ...props,
++    id,
++    basePath: '/album',
++    resource: 'album',
++  }
++  
++  return <AlbumEdit {...editProps} />
++}
++
++export default AlbumEditWrapper
+diff --git a/navidrome/ui/src/artist/ArtistList.jsx b/navidrome/ui/src/artist/ArtistList.jsx
+index e175763e..416bfda0 100644
+--- a/navidrome/ui/src/artist/ArtistList.jsx
++++ b/navidrome/ui/src/artist/ArtistList.jsx
+@@ -210,7 +210,7 @@ const ArtistList = (props) => {
+         exporter={false}
+         bulkActionButtons={false}
+         filters={<ArtistFilter />}
+-        filterDefaultValues={{ role: 'albumartist' }}
++        filterDefaultValues={{ role: 'maincredit' }}
+         actions={<ArtistListActions />}
+       >
+         <ArtistListView {...props} />
+diff --git a/navidrome/ui/src/audioplayer/Player.jsx b/navidrome/ui/src/audioplayer/Player.jsx
+index eba3b82d..f8cc5c6a 100644
+--- a/navidrome/ui/src/audioplayer/Player.jsx
++++ b/navidrome/ui/src/audioplayer/Player.jsx
+@@ -173,7 +173,7 @@ const Player = () => {
+       playMode: playerState.mode,
+       mode: 'full',
+       loadAudioErrorPlayNext: false,
+-      autoPlayInitLoadPlayList: true,
++      autoPlayInitLoadPlayList: false,
+       clearPriorAudioLists: false,
+       showDestroy: true,
+       showDownload: false,
+@@ -204,17 +204,25 @@ const Player = () => {
+   )
+ 
+   const options = useMemo(() => {
+-    const current = playerState.current || {}
++    const current = playerState.current?.trackId
++      ? playerState.current
++      : playerState.queue[
++          playerState.playIndex ?? playerState.savedPlayIndex
++        ] || {}
+     return {
+       ...defaultOptions,
+       audioLists: playerState.queue.map((item) => item),
+       playIndex: playerState.playIndex,
+       autoPlay:
+         playerState.autoPlay !== false &&
+-        (playerState.clear || playerState.playIndex === 0),
++        (playerState.clear || playerState.playIndex === 0 || playerState.autoPlay === true),
+       clearPriorAudioLists: playerState.clear,
+       extendsContent: (
+-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
++        <PlayerToolbar
++          id={current.trackId}
++          isRadio={current.isRadio}
++          record={current.song}
++        />
+       ),
+       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
+       showMediaSession: !current.isRadio,
+diff --git a/navidrome/ui/src/audioplayer/PlayerToolbar.jsx b/navidrome/ui/src/audioplayer/PlayerToolbar.jsx
+index 4812141a..c3133e30 100644
+--- a/navidrome/ui/src/audioplayer/PlayerToolbar.jsx
++++ b/navidrome/ui/src/audioplayer/PlayerToolbar.jsx
+@@ -55,10 +55,13 @@ const useStyles = makeStyles((theme) => ({
+   },
+ }))
+ 
+-const PlayerToolbar = ({ id, isRadio }) => {
++const PlayerToolbar = ({ id, isRadio, record }) => {
+   const dispatch = useDispatch()
+-  const { data, loading } = useGetOne('song', id, { enabled: !!id && !isRadio })
+-  const [toggleLove, toggling] = useToggleLove('song', data)
++  const { data, loading } = useGetOne('song', id, {
++    enabled: !!id && !isRadio,
++  })
++  const songData = data || record
++  const [toggleLove, toggling] = useToggleLove('song', songData)
+   const isDesktop = useMediaQuery('(min-width:810px)')
+   const classes = useStyles()
+ 
+@@ -91,10 +94,11 @@ const PlayerToolbar = ({ id, isRadio }) => {
+ 
+   const loveButton = (
+     <LoveButton
+-      record={data}
++      key={id}
++      record={songData}
+       resource={'song'}
+       size={isDesktop ? undefined : 'inherit'}
+-      disabled={loading || toggling || !id || isRadio}
++      disabled={(loading && !songData) || toggling || !id || isRadio}
+       className={buttonClass}
+     />
+   )
+diff --git a/navidrome/ui/src/common/ContextMenus.jsx b/navidrome/ui/src/common/ContextMenus.jsx
+index 47c9c678..ef2031d0 100644
+--- a/navidrome/ui/src/common/ContextMenus.jsx
++++ b/navidrome/ui/src/common/ContextMenus.jsx
+@@ -24,6 +24,7 @@ import {
+ import { LoveButton } from './LoveButton'
+ import config from '../config'
+ import { formatBytes } from '../utils'
++import { usePermissions } from 'react-admin'
+ 
+ const useStyles = makeStyles({
+   noWrap: {
+@@ -34,6 +35,42 @@ const useStyles = makeStyles({
+   },
+ })
+ 
++const deleteAlbum = async (albumId, songCount, notify) => {
++  try {
++    // Use proper Subsonic API parameters
++    const username = localStorage.getItem('username') || 'admin'
++    const token = localStorage.getItem('subsonic-token') || ''
++    const salt = localStorage.getItem('subsonic-salt') || ''
++    const clientUniqueId = localStorage.getItem('clientUniqueId') || ''
++    
++    const response = await fetch(`/rest/deleteAlbum?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        'X-ND-Authorization': `Bearer ${localStorage.getItem('token')}`,
++        'X-ND-Client-Unique-Id': clientUniqueId,
++      },
++      body: JSON.stringify({
++        albumId: albumId,
++      }),
++    })
++
++    const data = await response.json()
++    const subsonicResponse = data['subsonic-response'] || data
++    
++    if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
++      notify('Album deleted successfully', 'success')
++      // Trigger a refresh of the current view
++      window.location.reload()
++    } else {
++      const errorMsg = subsonicResponse.deleteResponse?.message || subsonicResponse.error?.message || 'Delete failed'
++      notify(errorMsg, 'error')
++    }
++  } catch (err) {
++    notify('Network error: ' + err.message, 'error')
++  }
++}
++
+ const MoreButton = ({ record, onClick, info, ...rest }) => {
+   const handleClick = record.missing
+     ? (e) => {
+@@ -62,12 +99,14 @@ const ContextMenu = ({
+   songQueryParams,
+   hideShare,
+   hideInfo,
++  hideEdit,
+ }) => {
+   const classes = useStyles({ color })
+   const dataProvider = useDataProvider()
+   const dispatch = useDispatch()
+   const translate = useTranslate()
+   const notify = useNotify()
++  const { permissions } = usePermissions()
+   const [anchorEl, setAnchorEl] = useState(null)
+ 
+   const options = {
+@@ -133,6 +172,33 @@ const ContextMenu = ({
+         action: () => dispatch(openExtendedInfoDialog(record)),
+       },
+     }),
++    ...(!hideEdit && {
++      edit: {
++        enabled: !record.missing && resource === 'album',
++        needData: false,
++        label: translate('ra.action.edit'),
++        action: () => {
++          window.location.href = `/#/album/edit/${record.id}`
++        },
++      },
++    }),
++    ...(permissions === 'admin' && resource === 'album' && {
++      delete: {
++        enabled: !record.missing,
++        needData: false,
++        label: translate('resources.album.actions.delete'),
++        action: () => {
++          const confirmMessage = translate('resources.album.actions.deleteConfirm', {
++            name: record.name,
++            count: record.songCount || 0
++          })
++          
++          if (window.confirm(confirmMessage)) {
++            deleteAlbum(record.id, record.songCount || 0, notify)
++          }
++        },
++      },
++    }),
+   }
+ 
+   const handleClick = (e) => {
+@@ -255,6 +321,7 @@ export const ArtistContextMenu = (props) =>
+     <ContextMenu
+       {...props}
+       hideInfo={true}
++      hideEdit={true}
+       resource={'artist'}
+       songQueryParams={{
+         pagination: { page: 1, perPage: 200 },
+diff --git a/navidrome/ui/src/common/LoveButton.jsx b/navidrome/ui/src/common/LoveButton.jsx
+index 492ba95b..94458432 100644
+--- a/navidrome/ui/src/common/LoveButton.jsx
++++ b/navidrome/ui/src/common/LoveButton.jsx
+@@ -11,17 +11,27 @@ import config from '../config'
+ import { isDateSet } from '../utils/validations'
+ 
+ const useStyles = makeStyles(
+-  {
++  (theme) => ({
+     love: {
+-      color: (props) => props.color,
+       visibility: (props) =>
+-        props.visible === false
+-          ? 'hidden'
+-          : props.loved
+-            ? 'visible'
+-            : 'inherit',
++        props.visible === false ? 'hidden' : 'visible',
++      '& .MuiIconButton-label, & .MuiSvgIcon-root': {
++        color: (props) =>
++          (props.loved ? theme.palette.primary.main : (props.color || 'inherit')) + ' !important',
++      },
++      '&:hover': {
++        backgroundColor: 'transparent !important',
++        '& .MuiIconButton-label, & .MuiSvgIcon-root': {
++          color: (props) =>
++            (props.loved
++              ? theme.palette.type === 'dark'
++                ? theme.palette.primary.light
++                : theme.palette.primary.dark
++              : theme.palette.primary.main) + ' !important',
++        },
++      },
+     },
+-  },
++  }),
+   { name: 'NDLoveButton' },
+ )
+ 
+@@ -38,7 +48,8 @@ export const LoveButton = ({
+   ...rest
+ }) => {
+   const record = useRecordContext({ record: recordProp }) || {}
+-  const classes = useStyles({ color, visible, loved: record.starred })
++  const loved = !!(isDateSet(record.starred) || record.starred === true)
++  const classes = useStyles({ color, visible, loved })
+   const [toggleLove, loading] = useToggleLove(resource, record)
+ 
+   const handleToggleLove = useCallback(
+@@ -66,7 +77,7 @@ export const LoveButton = ({
+       }
+       {...rest}
+     >
+-      {record.starred ? (
++      {loved ? (
+         <FavoriteIcon fontSize={size} />
+       ) : (
+         <FavoriteBorderIcon fontSize={size} />
+diff --git a/navidrome/ui/src/common/MultiLineTextField.jsx b/navidrome/ui/src/common/MultiLineTextField.jsx
+index 1218d4bd..244cde8f 100644
+--- a/navidrome/ui/src/common/MultiLineTextField.jsx
++++ b/navidrome/ui/src/common/MultiLineTextField.jsx
+@@ -17,6 +17,13 @@ export const MultiLineTextField = memo(
+     const record = useRecordContext(rest)
+     const value = record && record[source]
+     let lines = value ? value.split('\n') : []
++    
++    // Filter out YouTube URLs from comments
++    lines = lines.map(line => {
++      // Remove YouTube URLs (http://youtube.com, https://youtube.com, youtu.be)
++      return line.replace(/https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/\S+/g, '[YouTube URL removed]')
++    })
++    
+     if (maxLines || firstLine) {
+       lines = lines.slice(firstLine, maxLines)
+     }
+diff --git a/navidrome/ui/src/common/Pagination.jsx b/navidrome/ui/src/common/Pagination.jsx
+index e17d9e63..a94c0392 100644
+--- a/navidrome/ui/src/common/Pagination.jsx
++++ b/navidrome/ui/src/common/Pagination.jsx
+@@ -2,5 +2,5 @@ import React from 'react'
+ import { Pagination as RAPagination } from 'react-admin'
+ 
+ export const Pagination = (props) => (
+-  <RAPagination rowsPerPageOptions={[15, 25, 50]} {...props} />
++  <RAPagination rowsPerPageOptions={[15, 25, 50, 100]} {...props} />
+ )
+diff --git a/navidrome/ui/src/common/SongBulkActions.jsx b/navidrome/ui/src/common/SongBulkActions.jsx
+index 9210bb02..fbf7cf77 100644
+--- a/navidrome/ui/src/common/SongBulkActions.jsx
++++ b/navidrome/ui/src/common/SongBulkActions.jsx
+@@ -1,8 +1,9 @@
+ import React, { Fragment, useEffect } from 'react'
+-import { useUnselectAll } from 'react-admin'
++import { useUnselectAll, usePermissions, useNotify, useDataProvider, Button } from 'react-admin'
+ import { addTracks, playNext, playTracks } from '../actions'
+ import { RiPlayList2Fill, RiPlayListAddFill } from 'react-icons/ri'
+ import PlayArrowIcon from '@material-ui/icons/PlayArrow'
++import DeleteIcon from '@material-ui/icons/Delete'
+ import { BatchPlayButton } from './index'
+ import { AddToPlaylistButton } from './AddToPlaylistButton'
+ import { makeStyles } from '@material-ui/core/styles'
+@@ -18,9 +19,64 @@ const useStyles = makeStyles((theme) => ({
+ export const SongBulkActions = (props) => {
+   const classes = useStyles()
+   const unselectAll = useUnselectAll()
++  const { permissions } = usePermissions()
++  const notify = useNotify()
++  const dataProvider = useDataProvider()
++
+   useEffect(() => {
+     unselectAll(props.resource)
+   }, [unselectAll, props.resource])
++
++  const handleDelete = async () => {
++    const { selectedIds, resource } = props
++    const count = selectedIds.length
++    
++    if (window.confirm(`Are you sure you want to delete ${count} song${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
++      try {
++        const username = localStorage.getItem('username') || 'admin'
++        const token = localStorage.getItem('subsonic-token') || ''
++        const salt = localStorage.getItem('subsonic-salt') || ''
++        const clientUniqueId = localStorage.getItem('clientUniqueId') || ''
++        
++        let successCount = 0
++        let failedCount = 0
++        
++        for (const songId of selectedIds) {
++          const response = await fetch(`/rest/deleteSong?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++            method: 'POST',
++            headers: {
++              'Content-Type': 'application/json',
++              'X-ND-Authorization': `Bearer ${localStorage.getItem('token')}`,
++              'X-ND-Client-Unique-Id': clientUniqueId,
++            },
++            body: JSON.stringify({ songId }),
++          })
++          
++          const data = await response.json()
++          const subsonicResponse = data['subsonic-response'] || data
++          
++          if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
++            successCount++
++          } else {
++            failedCount++
++          }
++        }
++        
++        if (failedCount === 0) {
++          notify(`Successfully deleted ${successCount} song${successCount > 1 ? 's' : ''}`, 'success')
++          unselectAll(resource)
++          window.location.reload()
++        } else {
++          notify(`Deleted ${successCount} song${successCount > 1 ? 's' : ''}, ${failedCount} failed`, 'warning')
++          unselectAll(resource)
++          window.location.reload()
++        }
++      } catch (err) {
++        notify('Network error: ' + err.message, 'error')
++      }
++    }
++  }
++
+   return (
+     <Fragment>
+       <BatchPlayButton
+@@ -48,6 +104,15 @@ export const SongBulkActions = (props) => {
+         <BatchShareButton {...props} className={classes.button} />
+       )}
+       <AddToPlaylistButton {...props} className={classes.button} />
++      {permissions === 'admin' && (
++        <Button
++          onClick={handleDelete}
++          label={'resources.song.actions.delete'}
++          className={classes.button}
++        >
++          <DeleteIcon />
++        </Button>
++      )}
+     </Fragment>
+   )
+ }
+diff --git a/navidrome/ui/src/common/SongContextMenu.jsx b/navidrome/ui/src/common/SongContextMenu.jsx
+index ac5b10e1..4f04acc6 100644
+--- a/navidrome/ui/src/common/SongContextMenu.jsx
++++ b/navidrome/ui/src/common/SongContextMenu.jsx
+@@ -168,6 +168,55 @@ export const SongContextMenu = ({
+         dispatch(openExtendedInfoDialog(fullRecord))
+       },
+     },
++    edit: {
++      enabled: !record.missing,
++      label: translate('ra.action.edit'),
++      action: (record) => {
++        // Navigate to edit page for song
++        window.location.href = `/#/song/edit/${record.mediaFileId || record.id}`
++      },
++    },
++    delete: {
++      enabled: permissions === 'admin' && !record.missing,
++      label: translate('resources.song.actions.delete'),
++      action: async (record) => {
++        if (window.confirm(translate('resources.song.actions.deleteConfirm', { title: record.title }))) {
++          try {
++            // Use proper Subsonic API parameters
++            const username = localStorage.getItem('username') || 'admin'
++            const token = localStorage.getItem('subsonic-token') || ''
++            const salt = localStorage.getItem('subsonic-salt') || ''
++            const clientUniqueId = localStorage.getItem('clientUniqueId') || ''
++            
++            const response = await fetch(`/rest/deleteSong?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++              method: 'POST',
++              headers: {
++                'Content-Type': 'application/json',
++                'X-ND-Authorization': `Bearer ${localStorage.getItem('token')}`,
++                'X-ND-Client-Unique-Id': clientUniqueId,
++              },
++              body: JSON.stringify({
++                songId: record.mediaFileId || record.id,
++              }),
++            })
++
++            const data = await response.json()
++            const subsonicResponse = data['subsonic-response'] || data
++            
++            if (subsonicResponse.status === 'ok' && subsonicResponse.deleteResponse?.success) {
++              notify('Song deleted successfully', 'success')
++              // Trigger a refresh of the current view
++              window.location.reload()
++            } else {
++              const errorMsg = subsonicResponse.deleteResponse?.message || subsonicResponse.error?.message || 'Delete failed'
++              notify(errorMsg, 'error')
++            }
++          } catch (err) {
++            notify('Network error: ' + err.message, 'error')
++          }
++        }
++      },
++    },
+   }
+ 
+   const handleClick = (e) => {
+diff --git a/navidrome/ui/src/common/useToggleLove.jsx b/navidrome/ui/src/common/useToggleLove.jsx
+index 3f98a2e2..3e52f666 100644
+--- a/navidrome/ui/src/common/useToggleLove.jsx
++++ b/navidrome/ui/src/common/useToggleLove.jsx
+@@ -1,10 +1,12 @@
+ import { useCallback, useEffect, useRef, useState } from 'react'
+-import { useDataProvider, useNotify } from 'react-admin'
++import { useDataProvider, useNotify, useRefresh } from 'react-admin'
+ import subsonic from '../subsonic'
++import { isDateSet } from '../utils/validations'
+ 
+ export const useToggleLove = (resource, record = {}) => {
+   const [loading, setLoading] = useState(false)
+   const notify = useNotify()
++  const refresh = useRefresh()
+ 
+   const mountedRef = useRef(false)
+   useEffect(() => {
+@@ -32,6 +34,9 @@ export const useToggleLove = (resource, record = {}) => {
+     }
+ 
+     Promise.all(promises)
++      .then(() => {
++        refresh()
++      })
+       .catch((e) => {
+         // eslint-disable-next-line no-console
+         console.log('Error encountered: ' + e)
+@@ -41,10 +46,11 @@ export const useToggleLove = (resource, record = {}) => {
+           setLoading(false)
+         }
+       })
+-  }, [dataProvider, record.mediaFileId, record.id, record.playlistId, resource])
++  }, [dataProvider, record.mediaFileId, record.id, record.playlistId, resource, refresh])
+ 
+   const toggleLove = () => {
+-    const toggle = record.starred ? subsonic.unstar : subsonic.star
++    const isStarred = !!(isDateSet(record.starred) || record.starred === true)
++    const toggle = isStarred ? subsonic.unstar : subsonic.star
+     const id = record.mediaFileId || record.id
+ 
+     setLoading(true)
+diff --git a/navidrome/ui/src/dataProvider/wrapperDataProvider.js b/navidrome/ui/src/dataProvider/wrapperDataProvider.js
+index 268d3668..b0c0162b 100644
+--- a/navidrome/ui/src/dataProvider/wrapperDataProvider.js
++++ b/navidrome/ui/src/dataProvider/wrapperDataProvider.js
+@@ -220,6 +220,18 @@ const wrapperDataProvider = {
+       data: json,
+     }))
+   },
++  updateSongTags: (songId, tags) => {
++    return httpClient(`${REST_URL}/song/${songId}/tags`, {
++      method: 'PUT',
++      body: JSON.stringify(tags),
++    }).then(({ json }) => ({ data: json }))
++  },
++  updateAlbumTags: (albumId, tags) => {
++    return httpClient(`${REST_URL}/album/${albumId}/tags`, {
++      method: 'PUT',
++      body: JSON.stringify(tags),
++    }).then(({ json }) => ({ data: json }))
++  },
+ }
+ 
+ export default wrapperDataProvider
+diff --git a/navidrome/ui/src/dialogs/DownloadDialog.jsx b/navidrome/ui/src/dialogs/DownloadDialog.jsx
+new file mode 100644
+index 00000000..9348741f
+--- /dev/null
++++ b/navidrome/ui/src/dialogs/DownloadDialog.jsx
+@@ -0,0 +1,206 @@
++import React, { useState, useEffect } from 'react'
++import {
++  Dialog,
++  DialogTitle,
++  DialogContent,
++  DialogActions,
++  TextField,
++  Button,
++  FormControl,
++  InputLabel,
++  Select,
++  MenuItem,
++  Typography,
++  Box,
++  CircularProgress,
++} from '@material-ui/core'
++import { useTranslate, useNotify } from 'react-admin'
++import { MdDownload } from 'react-icons/md'
++
++const DownloadDialog = ({ open, onClose }) => {
++  const translate = useTranslate()
++  const notify = useNotify()
++  const [url, setUrl] = useState('')
++  const [library, setLibrary] = useState('')
++  const [loading, setLoading] = useState(false)
++  const [error, setError] = useState('')
++  const [libraries, setLibraries] = useState([])
++
++  useEffect(() => {
++    const fetchLibraries = async () => {
++      try {
++        const username = localStorage.getItem('username') || 'admin'
++        const token = localStorage.getItem('subsonic-token') || ''
++        const salt = localStorage.getItem('subsonic-salt') || ''
++        
++        const response = await fetch(`/rest/getLibraries?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++          method: 'GET',
++          headers: {
++            'Content-Type': 'application/json',
++          },
++        })
++
++        const data = await response.json()
++        const subsonicResponse = data['subsonic-response'] || data
++        
++        if (subsonicResponse.status === 'ok' && subsonicResponse.libraryResponse?.success) {
++          const libs = subsonicResponse.libraryResponse.libraries || []
++          setLibraries(libs)
++          if (libs.length === 1) {
++            setLibrary(libs[0].name)
++          }
++        } else {
++          console.error('Failed to fetch libraries:', subsonicResponse)
++          setLibraries([{ id: 'default', name: 'Music Library' }])
++        }
++      } catch (err) {
++        console.error('Failed to fetch libraries:', err)
++        setLibraries([{ id: 'default', name: 'Music Library' }])
++      }
++    }
++    
++    if (open) {
++      fetchLibraries()
++    }
++  }, [open])
++
++  const cleanUrl = (url) => {
++    const idx = url.indexOf('&')
++    if (idx !== -1) {
++      return url.substring(0, idx)
++    }
++    return url
++  }
++
++  const handleSubmit = async (e) => {
++    e.preventDefault()
++    if (!url.trim()) {
++      setError('URL is required')
++      return
++    }
++
++    setLoading(true)
++    setError('')
++
++    try {
++      // Get current user info for authentication
++      const username = localStorage.getItem('username') || 'admin'
++      const token = localStorage.getItem('subsonic-token') || ''
++      const salt = localStorage.getItem('subsonic-salt') || ''
++      const cleanedUrl = cleanUrl(url.trim())
++      
++      const response = await fetch(`/rest/downloadSong?u=${encodeURIComponent(username)}&t=${encodeURIComponent(token)}&s=${encodeURIComponent(salt)}&c=NavidromeUI&v=1.8.0&f=json`, {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++        },
++        body: JSON.stringify({
++          url: cleanedUrl,
++          library: library.trim() || undefined,
++        }),
++      })
++
++      const data = await response.json()
++
++      // Handle Subsonic response format
++      const subsonicResponse = data['subsonic-response'] || data
++      
++      if (subsonicResponse.status === 'ok' && subsonicResponse.downloadResponse?.success) {
++        notify('Song downloaded successfully', 'success')
++        setUrl('')
++        setLibrary('')
++        onClose()
++      } else {
++        const errorMsg = subsonicResponse.downloadResponse?.message || subsonicResponse.error?.message || 'Download failed'
++        console.error('Download error:', errorMsg, subsonicResponse)
++        setError(errorMsg)
++      }
++    } catch (err) {
++      setError('Network error: ' + err.message)
++    } finally {
++      setLoading(false)
++    }
++  }
++
++  const handleClose = () => {
++    setUrl('')
++    setLibrary('')
++    setError('')
++    onClose()
++  }
++
++  return (
++    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
++      <DialogTitle>
++        <Box display="flex" alignItems="center">
++          <MdDownload size={24} style={{ marginRight: 8 }} />
++          {translate('download.youTube')}
++        </Box>
++      </DialogTitle>
++      
++      <form onSubmit={handleSubmit}>
++        <DialogContent>
++          <Typography variant="body2" color="textSecondary" style={{ marginBottom: 16 }}>
++            {translate('download.youTubeSubtitle')}
++          </Typography>
++          
++          {error && (
++            <Box mb={2} p={2} style={{ backgroundColor: '#ffebee', borderRadius: 4, color: '#c62828' }}>
++              <Typography variant="body2">
++                {error}
++              </Typography>
++            </Box>
++          )}
++          
++          <TextField
++            fullWidth
++            label={translate('download.youTubeUrl')}
++            value={url}
++            onChange={(e) => setUrl(e.target.value)}
++            margin="normal"
++            required
++            placeholder="https://music.youtube.com/watch?v=..."
++            disabled={loading}
++          />
++          
++          <FormControl fullWidth margin="normal">
++            <InputLabel>{translate('download.youTubeLibrary')}</InputLabel>
++            <Select
++              value={library}
++              onChange={(e) => setLibrary(e.target.value)}
++              disabled={loading}
++            >
++              <MenuItem value="">{translate('download.youTubeDefaultLibrary')}</MenuItem>
++              {libraries.map((lib) => (
++                <MenuItem key={lib.id} value={lib.name}>
++                  {lib.name}
++                </MenuItem>
++              ))}
++            </Select>
++          </FormControl>
++          
++          <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
++            {translate('download.youTubeHelpText')}
++          </Typography>
++        </DialogContent>
++        
++        <DialogActions>
++          <Button onClick={handleClose} disabled={loading}>
++            {translate('ra.action.cancel')}
++          </Button>
++          <Button
++            type="submit"
++            color="primary"
++            variant="contained"
++            disabled={loading || !url.trim()}
++            startIcon={loading ? <CircularProgress size={20} /> : <MdDownload />}
++          >
++            {translate('download.youTubeButton')}
++          </Button>
++        </DialogActions>
++      </form>
++    </Dialog>
++  )
++}
++
++export default DownloadDialog
+diff --git a/navidrome/ui/src/i18n/en.json b/navidrome/ui/src/i18n/en.json
+index 7c4b8ff0..a04c51a9 100644
+--- a/navidrome/ui/src/i18n/en.json
++++ b/navidrome/ui/src/i18n/en.json
+@@ -5,6 +5,7 @@
+       "name": "Song |||| Songs",
+       "fields": {
+         "albumArtist": "Album Artist",
++        "albumName": "Album Name",
+         "duration": "Time",
+         "trackNumber": "#",
+         "playCount": "Plays",
+@@ -24,6 +25,7 @@
+         "sampleRate": "Sample rate",
+         "channels": "Channels",
+         "discSubtitle": "Disc Subtitle",
++        "discNumber": "Disc Number",
+         "starred": "Favourite",
+         "comment": "Comment",
+         "rating": "Rating",
+@@ -48,7 +50,9 @@
+         "download": "Download",
+         "playNext": "Play Next",
+         "info": "Get Info",
+-        "instantMix": "Instant Mix"
++        "instantMix": "Instant Mix",
++        "delete": "Delete Song",
++        "deleteConfirm": "Are you sure you want to delete '%{title}'? This action cannot be undone."
+       }
+     },
+     "album": {
+@@ -90,7 +94,9 @@
+         "shuffle": "Shuffle",
+         "addToPlaylist": "Add to Playlist",
+         "download": "Download",
+-        "info": "Get Info"
++        "info": "Get Info",
++        "delete": "Delete Album",
++        "deleteConfirm": "Are you sure you want to delete '%{name}'? This will permanently remove all %{count} songs in this album and cannot be undone."
+       },
+       "lists": {
+         "all": "All",
+@@ -611,6 +617,7 @@
+     "settings": "Settings",
+     "version": "Version",
+     "theme": "Theme",
++    "liked": "Liked",
+     "personal": {
+       "name": "Personal",
+       "options": {
+@@ -633,7 +640,18 @@
+     "albumList": "Albums",
+     "playlists": "Playlists",
+     "sharedPlaylists": "Shared Playlists",
+-    "about": "About"
++    "about": "About",
++    "downloadSong": "Download Song",
++    "downloadError": "Error downloading song"
++  },
++  "download": {
++    "youTube": "Download song from YouTube Music",
++    "youTubeSubtitle": "YouTube Music provides better metadata. Use YouTube only if the song cannot be found on YouTube Music.",
++    "youTubeLibrary": "Download Library",
++    "youTubeDefaultLibrary": "Default Library",
++    "youTubeButton": "Download",
++    "youTubeUrl": "YouTube Music URL",
++    "youTubeHelpText": "Enter a YouTube Music URL to download and add to your library"
+   },
+   "player": {
+     "playListsText": "Play Queue",
+@@ -650,6 +668,13 @@
+     "toggleMiniModeText": "Minimize",
+     "destroyText": "Destroy",
+     "downloadText": "Download",
++    "download": {
++      "url": "Song URL",
++      "library": "Library Folder",
++      "defaultLibrary": "Default Library",
++      "download": "Download",
++      "helpText": "Enter a YouTube, SoundCloud, or other supported URL to download the song. The downloaded file will be added to your music library and automatically scanned."
++    },
+     "removeAudioListsText": "Delete audio lists",
+     "clickToDeleteText": "Click to delete %{name}",
+     "emptyLyricText": "No lyrics",
+diff --git a/navidrome/ui/src/layout/AppBar.jsx b/navidrome/ui/src/layout/AppBar.jsx
+index 561701dc..b923ec6c 100644
+--- a/navidrome/ui/src/layout/AppBar.jsx
++++ b/navidrome/ui/src/layout/AppBar.jsx
+@@ -6,12 +6,13 @@ import {
+   usePermissions,
+   getResources,
+ } from 'react-admin'
+-import { MdInfo, MdPerson, MdSupervisorAccount } from 'react-icons/md'
++import { MdInfo, MdPerson, MdSupervisorAccount, MdDownload } from 'react-icons/md'
+ import { useSelector } from 'react-redux'
+ import { makeStyles, MenuItem, ListItemIcon, Divider } from '@material-ui/core'
+ import ViewListIcon from '@material-ui/icons/ViewList'
+ import { Dialogs } from '../dialogs/Dialogs'
+ import { AboutDialog } from '../dialogs'
++import DownloadDialog from '../dialogs/DownloadDialog'
+ import PersonalMenu from './PersonalMenu'
+ import ActivityPanel from './ActivityPanel'
+ import NowPlayingPanel from './NowPlayingPanel'
+@@ -33,6 +34,34 @@ const useStyles = makeStyles(
+   },
+ )
+ 
++const DownloadMenuItem = forwardRef(({ onClick, ...rest }, ref) => {
++  const classes = useStyles(rest)
++  const translate = useTranslate()
++  const [open, setOpen] = React.useState(false)
++
++  const handleOpen = () => {
++    setOpen(true)
++  }
++  const handleClose = () => {
++    setOpen(false)
++  }
++
++  const label = translate('menu.downloadSong')
++  return (
++    <>
++      <MenuItem ref={ref} onClick={handleOpen} className={classes.root}>
++        <ListItemIcon className={classes.icon}>
++          <MdDownload title={label} size={24} />
++        </ListItemIcon>
++        {label}
++      </MenuItem>
++      <DownloadDialog open={open} onClose={handleClose} />
++    </>
++  )
++})
++
++DownloadMenuItem.displayName = 'DownloadMenuItem'
++
+ const AboutMenuItem = forwardRef(({ onClick, ...rest }, ref) => {
+   const classes = useStyles(rest)
+   const translate = useTranslate()
+@@ -126,6 +155,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
+       {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
+       <UserMenu {...rest}>
+         <PersonalMenu sidebarIsOpen={true} onClick={onClick} />
++        <DownloadMenuItem />
+         <Divider />
+         {renderUserMenuItemLink()}
+         {resources
+diff --git a/navidrome/ui/src/layout/Menu.jsx b/navidrome/ui/src/layout/Menu.jsx
+index 45f40b26..5b1c39c7 100644
+--- a/navidrome/ui/src/layout/Menu.jsx
++++ b/navidrome/ui/src/layout/Menu.jsx
+@@ -1,10 +1,14 @@
+ import React, { useState } from 'react'
+ import { useSelector } from 'react-redux'
++import { useLocation } from 'react-router-dom'
+ import { Divider, makeStyles } from '@material-ui/core'
+ import clsx from 'clsx'
+ import { useTranslate, MenuItemLink, getResources } from 'react-admin'
+ import ViewListIcon from '@material-ui/icons/ViewList'
+ import AlbumIcon from '@material-ui/icons/Album'
++import FavoriteIcon from '@material-ui/icons/Favorite'
++import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
++import MusicNoteOutlinedIcon from '@material-ui/icons/MusicNoteOutlined'
+ import SubMenu from './SubMenu'
+ import { humanize, pluralize } from 'inflection'
+ import albumLists from '../album/albumLists'
+@@ -52,6 +56,11 @@ const Menu = ({ dense = false }) => {
+   const queue = useSelector((state) => state.player?.queue)
+   const classes = useStyles({ addPadding: queue.length > 0 })
+   const resources = useSelector(getResources)
++  const location = useLocation()
++
++  const isLiked =
++    location.pathname === '/song' &&
++    location.search.includes('%22starred%22%3Atrue')
+ 
+   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
+   const [state, setState] = useState({
+@@ -64,17 +73,32 @@ const Menu = ({ dense = false }) => {
+     setState((state) => ({ ...state, [menu]: !state[menu] }))
+   }
+ 
+-  const renderResourceMenuItemLink = (resource) => (
+-    <MenuItemLink
+-      key={resource.name}
+-      to={`/${resource.name}`}
+-      activeClassName={classes.active}
+-      primaryText={translatedResourceName(resource, translate)}
+-      leftIcon={resource.icon || <ViewListIcon />}
+-      sidebarIsOpen={open}
+-      dense={dense}
+-    />
+-  )
++  const renderResourceMenuItemLink = (resource) => {
++    let isActive = undefined
++    let icon = resource.icon
++    let to = `/${resource.name}`
++
++    if (resource.name === 'song') {
++      to = `/${resource.name}?filter=%7B%7D`
++      isActive = (match) => match && !isLiked
++      if (isLiked) {
++        icon = <MusicNoteOutlinedIcon />
++      }
++    }
++
++    return (
++      <MenuItemLink
++        key={resource.name}
++        to={to}
++        activeClassName={classes.active}
++        primaryText={translatedResourceName(resource, translate)}
++        leftIcon={icon || <ViewListIcon />}
++        sidebarIsOpen={open}
++        dense={dense}
++        isActive={isActive}
++      />
++    )
++  }
+ 
+   const renderAlbumMenuItemLink = (type, al) => {
+     const resource = resources.find((r) => r.name === 'album')
+@@ -126,6 +150,17 @@ const Menu = ({ dense = false }) => {
+         )}
+       </SubMenu>
+       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
++      {config.enableFavourites && (
++        <MenuItemLink
++          to="/liked"
++          activeClassName={classes.active}
++          primaryText={translate('menu.liked')}
++          leftIcon={isLiked ? <FavoriteIcon /> : <FavoriteBorderIcon />}
++          sidebarIsOpen={open}
++          dense={dense}
++          isActive={() => isLiked}
++        />
++      )}
+       {config.devSidebarPlaylists && open ? (
+         <>
+           <Divider />
+diff --git a/navidrome/ui/src/reducers/playerReducer.js b/navidrome/ui/src/reducers/playerReducer.js
+index d3291633..4633c09c 100644
+--- a/navidrome/ui/src/reducers/playerReducer.js
++++ b/navidrome/ui/src/reducers/playerReducer.js
+@@ -214,13 +214,22 @@ export const playerReducer = (previousState = initialState, payload) => {
+     case PLAYER_CLEAR_QUEUE:
+       return reduceClearQueue()
+     case PLAYER_PLAY_TRACKS:
+-      return reducePlayTracks(previousState, payload)
++      return {
++        ...reducePlayTracks(previousState, payload),
++        autoPlay: true,
++      }
+     case PLAYER_SET_TRACK:
+-      return reduceSetTrack(previousState, payload)
++      return {
++        ...reduceSetTrack(previousState, payload),
++        autoPlay: true,
++      }
+     case PLAYER_ADD_TRACKS:
+       return reduceAddTracks(previousState, payload)
+     case PLAYER_PLAY_NEXT:
+-      return reducePlayNext(previousState, payload)
++      return {
++        ...reducePlayNext(previousState, payload),
++        autoPlay: true,
++      }
+     case PLAYER_SET_VOLUME:
+       return reduceSetVolume(previousState, payload)
+     case PLAYER_SYNC_QUEUE:
+diff --git a/navidrome/ui/src/routes.jsx b/navidrome/ui/src/routes.jsx
+index 0b36ea5a..5ccce95a 100644
+--- a/navidrome/ui/src/routes.jsx
++++ b/navidrome/ui/src/routes.jsx
+@@ -1,9 +1,14 @@
+ import React from 'react'
+-import { Route } from 'react-router-dom'
++import { Route, Redirect } from 'react-router-dom'
+ import Personal from './personal/Personal'
++import AlbumEditWrapper from './album/AlbumEditWrapper'
++import SongEditWrapper from './song/SongEditWrapper'
+ 
+ const routes = [
+   <Route exact path="/personal" render={() => <Personal />} key={'personal'} />,
++  <Route exact path="/album/edit/:id" render={(props) => <AlbumEditWrapper {...props} />} key={'albumEdit'} />,
++  <Route exact path="/song/edit/:id" render={(props) => <SongEditWrapper {...props} />} key={'songEdit'} />,
++  <Route exact path="/liked" render={() => <Redirect to="/song?filter=%7B%22starred%22%3Atrue%7D&sort=starred_at&order=DESC" />} key={'liked'} />,
+ ]
+ 
+ export default routes
+diff --git a/navidrome/ui/src/song/SongEdit.jsx b/navidrome/ui/src/song/SongEdit.jsx
+new file mode 100644
+index 00000000..6d22b9f3
+--- /dev/null
++++ b/navidrome/ui/src/song/SongEdit.jsx
+@@ -0,0 +1,135 @@
++import React, { useCallback } from 'react'
++import { makeStyles } from '@material-ui/core/styles'
++import {
++  TextInput,
++  NumberInput,
++  Edit,
++  required,
++  SimpleForm,
++  useTranslate,
++  Toolbar,
++  SaveButton,
++  useNotify,
++  useRedirect,
++  useRefresh,
++  Notification,
++  useDataProvider,
++  useRecordContext,
++} from 'react-admin'
++import { Title } from '../common'
++
++const useStyles = makeStyles({
++  toolbar: {
++    display: 'flex',
++    justifyContent: 'space-between',
++  },
++})
++
++const SongTitle = ({ record }) => {
++  const translate = useTranslate()
++  const resourceName = translate('resources.song.name', { smart_count: 1 })
++  return <Title subTitle={`${resourceName} ${record ? record.title : ''}`} />
++}
++
++const SongToolbar = (props) => (
++  <Toolbar {...props} classes={useStyles()}>
++    <SaveButton disabled={props.pristine} />
++  </Toolbar>
++)
++
++const SongEdit = (props) => {
++  const translate = useTranslate()
++  const dataProvider = useDataProvider()
++  const notify = useNotify()
++  const redirect = useRedirect()
++  const refresh = useRefresh()
++  const record = useRecordContext()
++
++  const save = useCallback(
++    async (values) => {
++      try {
++        const songId = record?.id || values.id
++        if (!songId) {
++          notify('Cannot save: missing song ID', 'error')
++          return
++        }
++        
++        const tags = {}
++        if (values.title !== undefined) tags.title = values.title
++        if (values.artist !== undefined) tags.artist = values.artist
++        if (values.album !== undefined) tags.album = values.album
++        if (values.genre !== undefined) tags.genre = values.genre
++        if (values.year !== undefined) tags.year = values.year
++        if (values.trackNumber !== undefined) tags.trackNumber = values.trackNumber
++        if (values.discNumber !== undefined) tags.discNumber = values.discNumber
++        if (values.comment !== undefined) tags.comment = values.comment
++
++        await dataProvider.updateSongTags(songId, tags)
++        
++        notify('Song metadata updated successfully')
++        refresh()
++        redirect('/song')
++      } catch (error) {
++        console.error('Error in song edit:', error)
++        notify('Failed to update song metadata: ' + (error.message || 'Unknown error'), 'warning')
++      }
++    },
++    [dataProvider, notify, redirect, refresh, record],
++  )
++
++  return (
++    <>
++      <Edit title={<SongTitle />} undoable={false} {...props}>
++        <SimpleForm
++          variant={'outlined'}
++          toolbar={<SongToolbar />}
++          save={save}
++        >
++          <TextInput
++            source="title"
++            label={translate('resources.song.fields.title')}
++            validate={[required()]}
++            fullWidth
++          />
++          <TextInput
++            source="artist"
++            label={translate('resources.song.fields.artist')}
++            fullWidth
++          />
++          <TextInput
++            source="album"
++            label={translate('resources.song.fields.albumName')}
++            fullWidth
++          />
++          <TextInput
++            source="genre"
++            label={translate('resources.song.fields.genre')}
++            fullWidth
++          />
++          <NumberInput
++            source="year"
++            label={translate('resources.song.fields.year')}
++          />
++          <NumberInput
++            source="trackNumber"
++            label={translate('resources.song.fields.trackNumber')}
++          />
++          <NumberInput
++            source="discNumber"
++            label={translate('resources.song.fields.discNumber')}
++          />
++          <TextInput
++            source="comment"
++            label={translate('resources.song.fields.comment')}
++            multiline
++            rows={3}
++            fullWidth
++          />
++        </SimpleForm>
++      </Edit>
++      <Notification />
++    </>
++  )
++}
++
++export default SongEdit
+diff --git a/navidrome/ui/src/song/SongEditWrapper.jsx b/navidrome/ui/src/song/SongEditWrapper.jsx
+new file mode 100644
+index 00000000..9db637c7
+--- /dev/null
++++ b/navidrome/ui/src/song/SongEditWrapper.jsx
+@@ -0,0 +1,19 @@
++import React from 'react'
++import SongEdit from './SongEdit'
++
++const SongEditWrapper = (props) => {
++  // Extract the ID from the route params
++  const id = props.match.params.id
++  
++  // Provide all required React Admin props
++  const editProps = {
++    ...props,
++    id,
++    basePath: '/song',
++    resource: 'song',
++  }
++  
++  return <SongEdit {...editProps} />
++}
++
++export default SongEditWrapper
+diff --git a/navidrome/ui/src/store/createAdminStore.js b/navidrome/ui/src/store/createAdminStore.js
+index 4888e49e..6aa66393 100644
+--- a/navidrome/ui/src/store/createAdminStore.js
++++ b/navidrome/ui/src/store/createAdminStore.js
+@@ -41,8 +41,11 @@ const createAdminStore = ({
+     compose
+ 
+   const persistedState = loadState()
+-  if (persistedState?.player?.savedPlayIndex) {
+-    persistedState.player.playIndex = persistedState.player.savedPlayIndex
++  if (persistedState?.player) {
++    if (persistedState.player.savedPlayIndex >= 0) {
++      persistedState.player.playIndex = persistedState.player.savedPlayIndex
++    }
++    persistedState.player.autoPlay = false
+   }
+   const store = createStore(
+     resettableAppReducer,
+diff --git a/navidrome/ui/src/sw.js b/navidrome/ui/src/sw.js
+index f4a5664b..fce19086 100644
+--- a/navidrome/ui/src/sw.js
++++ b/navidrome/ui/src/sw.js
+@@ -1,20 +1,53 @@
+ /* eslint-disable */
+ 
+ // documentation: https://developers.google.com/web/tools/workbox/modules/workbox-sw
+-importScripts('3rdparty/workbox/workbox-sw.js')
++// Only load workbox if not in development and the script exists
++if (typeof importScripts !== 'undefined') {
++  try {
++    importScripts('3rdparty/workbox/workbox-sw.js')
++    
++    if (typeof workbox !== 'undefined') {
++      workbox.setConfig({
++        modulePathPrefix: '3rdparty/workbox/',
++        debug: false,
++      })
+ 
+-workbox.setConfig({
+-  modulePathPrefix: '3rdparty/workbox/',
+-  debug: false,
+-})
++      workbox.loadModule('workbox-core')
++      workbox.loadModule('workbox-strategies')
++      workbox.loadModule('workbox-routing')
++      workbox.loadModule('workbox-navigation-preload')
++      workbox.loadModule('workbox-precaching')
++
++      workbox.core.clientsClaim()
++      self.skipWaiting()
++
++      // self.__WB_MANIFEST is default injection point
++      workbox.precaching.precacheAndRoute(self.__WB_MANIFEST)
+ 
+-workbox.loadModule('workbox-core')
+-workbox.loadModule('workbox-strategies')
+-workbox.loadModule('workbox-routing')
+-workbox.loadModule('workbox-navigation-preload')
+-workbox.loadModule('workbox-precaching')
++      const networkOnly = new workbox.strategies.NetworkOnly()
++      const navigationHandler = async (params) => {
++        try {
++          // Attempt a network request.
++          return await networkOnly.handle(params)
++        } catch (error) {
++          // If it fails, return the cached HTML.
++          return caches.match(FALLBACK_HTML_URL, {
++            cacheName: CACHE_NAME,
++          })
++        }
++      }
++
++      // Register this strategy to handle all navigations.
++      workbox.routing.registerRoute(
++        new workbox.routing.NavigationRoute(navigationHandler),
++      )
++    }
++  } catch (error) {
++    console.warn('Workbox scripts not available, service worker running in fallback mode')
++  }
++}
+ 
+-workbox.core.clientsClaim()
++// Fallback basic service worker functionality
+ self.skipWaiting()
+ 
+ addEventListener('message', (event) => {
+@@ -35,23 +68,3 @@ self.addEventListener('install', async (event) => {
+   )
+ })
+ 
+-const networkOnly = new workbox.strategies.NetworkOnly()
+-const navigationHandler = async (params) => {
+-  try {
+-    // Attempt a network request.
+-    return await networkOnly.handle(params)
+-  } catch (error) {
+-    // If it fails, return the cached HTML.
+-    return caches.match(FALLBACK_HTML_URL, {
+-      cacheName: CACHE_NAME,
+-    })
+-  }
+-}
+-
+-// self.__WB_MANIFEST is default injection point
+-workbox.precaching.precacheAndRoute(self.__WB_MANIFEST)
+-
+-// Register this strategy to handle all navigations.
+-workbox.routing.registerRoute(
+-  new workbox.routing.NavigationRoute(navigationHandler),
+-)

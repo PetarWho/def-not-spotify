@@ -88,7 +88,6 @@ func (md Metadata) buildRoleMbidMaps() map[string][]string {
 }
 
 func (md Metadata) processPerformers(participants model.Participants, rolesMbzIdMap map[string][]string) {
-	// roleIdx keeps track of the index of the MBZ ID for each role
 	roleIdx := make(map[string]int)
 	for role := range rolesMbzIdMap {
 		roleIdx[role] = 0
@@ -100,6 +99,7 @@ func (md Metadata) processPerformers(participants model.Participants, rolesMbzId
 		subRole := titleCaser.String(performer.Key())
 		names := splitParticipantValues(conf, []string{performer.Value()})
 		for _, name := range names {
+			name = stripQuotes(name)
 			artist := model.Artist{
 				ID:              md.artistID(name),
 				Name:            name,
@@ -157,6 +157,7 @@ func (md Metadata) buildArtists(names, sorts, mbids []string) []model.Artist {
 	var artists []model.Artist
 	for i, name := range names {
 		id := md.artistID(name)
+		name = stripQuotes(name)
 		artist := model.Artist{
 			ID:              id,
 			Name:            name,
@@ -181,6 +182,25 @@ func splitParticipantValues(conf model.TagConf, values []string) []string {
 		return values
 	}
 	return filterDuplicatedOrEmptyValues(conf.SplitTagValue(values))
+}
+
+func stripQuotes(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		firstRune := []rune(s)[0]
+		if isQuoteRune(firstRune) {
+			lastRune := []rune(s)[len([]rune(s))-1]
+			if isQuoteRune(lastRune) {
+				rs := []rune(s)
+				s = string(rs[1 : len(rs)-1])
+			}
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func isQuoteRune(r rune) bool {
+	return r == '"' || r == '\u201c' || r == '\u201d' || r == '\'' || r == '\u2018' || r == '\u2019'
 }
 
 // getRoleValues returns the values of a role tag, splitting them if necessary

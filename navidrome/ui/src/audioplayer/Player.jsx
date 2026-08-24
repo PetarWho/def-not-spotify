@@ -209,7 +209,7 @@ const Player = () => {
       playMode: playerState.mode,
       mode: 'full',
       loadAudioErrorPlayNext: false,
-      autoPlayInitLoadPlayList: true,
+      autoPlayInitLoadPlayList: false,
       clearPriorAudioLists: false,
       showDestroy: true,
       showDownload: false,
@@ -240,7 +240,11 @@ const Player = () => {
   )
 
   const options = useMemo(() => {
-    const current = playerState.current || {}
+    const current = playerState.current?.trackId
+      ? playerState.current
+      : playerState.queue[
+          playerState.playIndex ?? playerState.savedPlayIndex
+        ] || {}
     return {
       ...defaultOptions,
       audioLists: playerState.queue.map((item) => item),
@@ -248,10 +252,14 @@ const Player = () => {
       autoPlay:
         playerState.queue.length > 0 &&
         playerState.autoPlay !== false &&
-        (playerState.clear || playerState.playIndex === 0),
+        (playerState.clear || playerState.playIndex === 0 || playerState.autoPlay === true),
       clearPriorAudioLists: playerState.clear,
       extendsContent: (
-        <PlayerToolbar id={current.trackId} isRadio={current.isRadio} />
+        <PlayerToolbar
+          id={current.trackId}
+          isRadio={current.isRadio}
+          record={current.song}
+        />
       ),
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,

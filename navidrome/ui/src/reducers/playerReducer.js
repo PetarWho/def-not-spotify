@@ -214,13 +214,22 @@ export const playerReducer = (previousState = initialState, payload) => {
     case PLAYER_CLEAR_QUEUE:
       return reduceClearQueue()
     case PLAYER_PLAY_TRACKS:
-      return reducePlayTracks(previousState, payload)
+      return {
+        ...reducePlayTracks(previousState, payload),
+        autoPlay: true,
+      }
     case PLAYER_SET_TRACK:
-      return reduceSetTrack(previousState, payload)
+      return {
+        ...reduceSetTrack(previousState, payload),
+        autoPlay: true,
+      }
     case PLAYER_ADD_TRACKS:
       return reduceAddTracks(previousState, payload)
     case PLAYER_PLAY_NEXT:
-      return reducePlayNext(previousState, payload)
+      return {
+        ...reducePlayNext(previousState, payload),
+        autoPlay: true,
+      }
     case PLAYER_SET_VOLUME:
       return reduceSetVolume(previousState, payload)
     case PLAYER_SYNC_QUEUE:

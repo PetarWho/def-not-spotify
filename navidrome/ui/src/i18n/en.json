@@ -5,6 +5,7 @@
       "name": "Song |||| Songs",
       "fields": {
         "albumArtist": "Album Artist",
+        "albumName": "Album Name",
         "duration": "Time",
         "trackNumber": "#",
         "playCount": "Plays",
@@ -27,6 +28,7 @@
         "channels": "Channels",
         "disc": "Disc %{discNumber}",
         "discSubtitle": "Disc Subtitle",
+        "discNumber": "Disc Number",
         "starred": "Favourite",
         "comment": "Comment",
         "rating": "Rating",
@@ -51,7 +53,9 @@
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info",
-        "instantMix": "Instant Mix"
+        "instantMix": "Instant Mix",
+        "delete": "Delete Song",
+        "deleteConfirm": "Are you sure you want to delete '%{title}'? This action cannot be undone."
       }
     },
     "album": {
@@ -93,7 +97,9 @@
         "shuffle": "Shuffle",
         "addToPlaylist": "Add to Playlist",
         "download": "Download",
-        "info": "Get Info"
+        "info": "Get Info",
+        "delete": "Delete Album",
+        "deleteConfirm": "Are you sure you want to delete '%{name}'? This will permanently remove all %{count} songs in this album and cannot be undone."
       },
       "lists": {
         "all": "All",
@@ -614,6 +620,7 @@
     "settings": "Settings",
     "version": "Version",
     "theme": "Theme",
+    "liked": "Liked",
     "personal": {
       "name": "Personal",
       "options": {
@@ -636,7 +643,18 @@
     "albumList": "Albums",
     "playlists": "Playlists",
     "sharedPlaylists": "Shared Playlists",
-    "about": "About"
+    "about": "About",
+    "downloadSong": "Download Song",
+    "downloadError": "Error downloading song"
+  },
+  "download": {
+    "youTube": "Download song from YouTube Music",
+    "youTubeSubtitle": "YouTube Music provides better metadata. Use YouTube only if the song cannot be found on YouTube Music.",
+    "youTubeLibrary": "Download Library",
+    "youTubeDefaultLibrary": "Default Library",
+    "youTubeButton": "Download",
+    "youTubeUrl": "YouTube Music URL",
+    "youTubeHelpText": "Enter a YouTube Music URL to download and add to your library"
   },
   "player": {
     "playListsText": "Play Queue",
@@ -653,6 +671,13 @@
     "toggleMiniModeText": "Minimize",
     "destroyText": "Destroy",
     "downloadText": "Download",
+    "download": {
+      "url": "Song URL",
+      "library": "Library Folder",
+      "defaultLibrary": "Default Library",
+      "download": "Download",
+      "helpText": "Enter a YouTube, SoundCloud, or other supported URL to download the song. The downloaded file will be added to your music library and automatically scanned."
+    },
     "removeAudioListsText": "Delete audio lists",
     "clickToDeleteText": "Click to delete %{name}",
     "emptyLyricText": "No lyrics",

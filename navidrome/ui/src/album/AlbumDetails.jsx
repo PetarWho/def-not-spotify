@@ -235,10 +235,6 @@ const AlbumDetails = (props) => {
 
   let notes = albumInfo?.notes || record.notes
 
-  if (notes) {
-    notes += '..'
-  }
-
   useEffect(() => {
     subsonic
       .getAlbumInfo(record.id)

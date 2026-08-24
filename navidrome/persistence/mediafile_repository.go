@@ -28,6 +28,8 @@ type dbMediaFile struct {
 	*model.MediaFile `structs:",flatten"`
 	Participants     string `structs:"-" json:"-"`
 	Tags             string `structs:"-" json:"-"`
+	LibraryPath      string `db:"library_path" structs:"-" json:"-"`
+	LibraryName      string `db:"library_name" structs:"-" json:"-"`
 	// These are necessary to map the correct names (rg_*) to the correct fields (RG*)
 	// without using `db` struct tags in the model.MediaFile struct
 	RgAlbumGain *float64 `structs:"-" json:"-"`
@@ -37,6 +39,8 @@ type dbMediaFile struct {
 }
 
 func (m *dbMediaFile) PostScan() error {
+	m.MediaFile.LibraryPath = m.LibraryPath
+	m.MediaFile.LibraryName = m.LibraryName
 	m.RGTrackGain = m.RgTrackGain
 	m.RGTrackPeak = m.RgTrackPeak
 	m.RGAlbumGain = m.RgAlbumGain

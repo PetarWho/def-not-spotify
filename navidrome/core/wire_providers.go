@@ -26,6 +26,7 @@ var Set = wire.NewSet(
 	NewMaintenance,
 	NewImageUploadService,
 	wire.Bind(new(playlists.ImageUploadService), new(ImageUploadService)),
+	NewTagEditor,
 	stream.NewTranscodeDecider,
 	agents.GetAgents,
 	external.NewProvider,
@@ -35,5 +36,6 @@ var Set = wire.NewSet(
 	scrobbler.GetPlayTracker,
 	playback.GetInstance,
 	metrics.GetInstance,
+	wire.Bind(new(TagEditor), new(*TagEditorImpl)),
 	lyrics.NewLyrics,
 )

@@ -49,6 +49,10 @@ type configOptions struct {
 	EnableTranscodingConfig         bool
 	EnableDownloads                 bool
 	EnableExternalServices          bool
+	DownloaderURL                   string
+	YTDLPCookiesFile                string
+	YTDLPUsername                   string
+	YTDLPPassword                   string
 	EnableM3UExternalAlbumArt       bool
 	EnableInsightsCollector         bool
 	EnableMediaFileCoverArt         bool
@@ -756,6 +760,10 @@ func setViperDefaults() {
 	viper.SetDefault("playlistspath", "")
 	viper.SetDefault("smartPlaylistRefreshDelay", 5*time.Second)
 	viper.SetDefault("enabledownloads", true)
+	viper.SetDefault("downloaderurl", "http://navidrome-song-downloader:8000")
+	viper.SetDefault("ytdlpcookiesfile", "")
+	viper.SetDefault("ytdlpusername", "")
+	viper.SetDefault("ytdlppassword", "")
 	viper.SetDefault("enableexternalservices", true)
 	viper.SetDefault("enablem3uexternalalbumart", false)
 	viper.SetDefault("enablemediafilecoverart", true)

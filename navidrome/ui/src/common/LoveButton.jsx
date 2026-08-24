@@ -11,17 +11,27 @@ import config from '../config'
 import { isDateSet } from '../utils/validations'
 
 const useStyles = makeStyles(
-  {
+  (theme) => ({
     love: {
-      color: (props) => props.color,
       visibility: (props) =>
-        props.visible === false
-          ? 'hidden'
-          : props.loved
-            ? 'visible'
-            : 'inherit',
+        props.visible === false ? 'hidden' : 'visible',
+      '& .MuiIconButton-label, & .MuiSvgIcon-root': {
+        color: (props) =>
+          (props.loved ? theme.palette.primary.main : (props.color || 'inherit')) + ' !important',
+      },
+      '&:hover': {
+        backgroundColor: 'transparent !important',
+        '& .MuiIconButton-label, & .MuiSvgIcon-root': {
+          color: (props) =>
+            (props.loved
+              ? theme.palette.type === 'dark'
+                ? theme.palette.primary.light
+                : theme.palette.primary.dark
+              : theme.palette.primary.main) + ' !important',
+        },
+      },
     },
-  },
+  }),
   { name: 'NDLoveButton' },
 )
 
@@ -38,7 +48,8 @@ export const LoveButton = ({
   ...rest
 }) => {
   const record = useRecordContext({ record: recordProp }) || {}
-  const classes = useStyles({ color, visible, loved: record.starred })
+  const loved = !!(isDateSet(record.starred) || record.starred === true)
+  const classes = useStyles({ color, visible, loved })
   const [toggleLove, loading] = useToggleLove(resource, record)
 
   const handleToggleLove = useCallback(
@@ -66,7 +77,7 @@ export const LoveButton = ({
       }
       {...rest}
     >
-      {record.starred ? (
+      {loved ? (
         <FavoriteIcon fontSize={size} />
       ) : (
         <FavoriteBorderIcon fontSize={size} />

@@ -32,7 +32,7 @@ WORKDIR /app
 # Install node dependencies
 COPY ui/package.json ui/package-lock.json ./
 COPY ui/bin/ ./bin/
-RUN npm ci
+RUN chmod +x bin/update-workbox.sh && npm ci
 
 # Build bundle
 COPY ui/ ./

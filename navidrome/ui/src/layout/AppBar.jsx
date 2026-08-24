@@ -6,12 +6,13 @@ import {
   usePermissions,
   getResources,
 } from 'react-admin'
-import { MdInfo, MdPerson, MdSupervisorAccount } from 'react-icons/md'
+import { MdInfo, MdPerson, MdSupervisorAccount, MdDownload } from 'react-icons/md'
 import { useSelector } from 'react-redux'
 import { makeStyles, MenuItem, ListItemIcon, Divider } from '@material-ui/core'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import { Dialogs } from '../dialogs/Dialogs'
 import { AboutDialog } from '../dialogs'
+import DownloadDialog from '../dialogs/DownloadDialog'
 import PersonalMenu from './PersonalMenu'
 import ActivityPanel from './ActivityPanel'
 import NowPlayingPanel from './NowPlayingPanel'
@@ -32,6 +33,34 @@ const useStyles = makeStyles(
     name: 'NDAppBar',
   },
 )
+
+const DownloadMenuItem = forwardRef(({ onClick, ...rest }, ref) => {
+  const classes = useStyles(rest)
+  const translate = useTranslate()
+  const [open, setOpen] = React.useState(false)
+
+  const handleOpen = () => {
+    setOpen(true)
+  }
+  const handleClose = () => {
+    setOpen(false)
+  }
+
+  const label = translate('menu.downloadSong')
+  return (
+    <>
+      <MenuItem ref={ref} onClick={handleOpen} className={classes.root}>
+        <ListItemIcon className={classes.icon}>
+          <MdDownload title={label} size={24} />
+        </ListItemIcon>
+        {label}
+      </MenuItem>
+      <DownloadDialog open={open} onClose={handleClose} />
+    </>
+  )
+})
+
+DownloadMenuItem.displayName = 'DownloadMenuItem'
 
 const AboutMenuItem = forwardRef(({ onClick, ...rest }, ref) => {
   const classes = useStyles(rest)
@@ -126,6 +155,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
       {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
       <UserMenu {...rest}>
         <PersonalMenu sidebarIsOpen={true} onClick={onClick} />
+        <DownloadMenuItem />
         <Divider />
         {renderUserMenuItemLink()}
         {resources

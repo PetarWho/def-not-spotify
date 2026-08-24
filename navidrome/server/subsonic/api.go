@@ -179,6 +179,10 @@ func (api *Router) routes() http.Handler {
 			r.Use(getPlayer(api.players))
 			h(r, "getScanStatus", api.GetScanStatus)
 			h(r.With(adminOnly), "startScan", api.StartScan)
+			h(r, "downloadSong", api.downloadSong)
+			h(r, "deleteSong", api.deleteSong)
+			h(r, "deleteAlbum", api.deleteAlbum)
+			h(r, "getLibraries", api.getLibraries)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(getPlayer(api.players))
