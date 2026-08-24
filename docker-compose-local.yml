@@ -4,11 +4,9 @@ services:
       context: ./navidrome
       dockerfile: Dockerfile
     container_name: navidrome
-    ports:
-      - "4533:4533"
     volumes:
-      - ./navidrome-data:/data
-      - ./music:/music
+      - /home/me/def-not-spotify/navidrome-data:/data
+      - /home/me/def-not-spotify/music:/music
     environment:
       ND_MUSICFOLDER: /music
       ND_DATAFOLDER: /data
@@ -26,8 +24,8 @@ services:
       dockerfile: Dockerfile
     container_name: navidrome-song-downloader
     volumes:
-      - ./music:/music
-      - ./navidrome-data:/data
+      - /home/me/def-not-spotify/music:/music
+      - /home/me/def-not-spotify/navidrome-data:/data
     restart: unless-stopped
     networks:
       - navidrome-network
