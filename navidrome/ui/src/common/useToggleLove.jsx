@@ -6,7 +6,6 @@ import { isDateSet } from '../utils/validations'
 export const useToggleLove = (resource, record = {}) => {
   const [loading, setLoading] = useState(false)
   const notify = useNotify()
-  const refresh = useRefresh()
 
   const mountedRef = useRef(false)
   useEffect(() => {
@@ -17,36 +16,32 @@ export const useToggleLove = (resource, record = {}) => {
   }, [])
 
   const dataProvider = useDataProvider()
+  const refresh = useRefresh()
 
   const refreshRecord = useCallback(() => {
-    const promises = []
+    // A playlistTrack id is a position, not a stable key: loving a song can drop it out of
+    // a smart playlist, and that position then holds a different track. Refetching the row
+    // by id would write the neighbour's data under this row, so reload the list instead.
+    const isPlaylistTrack = !!record.mediaFileId
+    const target = isPlaylistTrack
+      ? { resource: 'song', params: { id: record.mediaFileId } }
+      : { resource, params: { id: record.id } }
 
-    // Always refresh the original resource
-    const params = { id: record.id }
-    if (record.playlistId) {
-      params.filter = { playlist_id: record.playlistId }
-    }
-    promises.push(dataProvider.getOne(resource, params))
-
-    // If we have a mediaFileId, also refresh the song
-    if (record.mediaFileId) {
-      promises.push(dataProvider.getOne('song', { id: record.mediaFileId }))
-    }
-
-    Promise.all(promises)
-      .then(() => {
-        refresh()
-      })
+    dataProvider
+      .getOne(target.resource, target.params)
       .catch((e) => {
         // eslint-disable-next-line no-console
         console.log('Error encountered: ' + e)
       })
       .finally(() => {
+        if (isPlaylistTrack) {
+          refresh()
+        }
         if (mountedRef.current) {
           setLoading(false)
         }
       })
-  }, [dataProvider, record.mediaFileId, record.id, record.playlistId, resource, refresh])
+  }, [dataProvider, record.mediaFileId, record.id, refresh, resource])
 
   const toggleLove = () => {
     const isStarred = !!(isDateSet(record.starred) || record.starred === true)
