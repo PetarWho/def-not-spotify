@@ -1,7 +1,7 @@
 # Updating the vendored Navidrome (`navidrome/`)
 
 `navidrome/` is tracked as a **git subtree** rooted at the `upstream` remote
-(https://github.com/navidrome/navidrome), currently based on `v0.63.2`. It is
+(https://github.com/navidrome/navidrome), currently based on `v0.64.2`. It is
 *not* a submodule and *not* a flat file copy — it shares real commit history
 with upstream, so merges are proper 3-way merges instead of blind overwrites.
 
